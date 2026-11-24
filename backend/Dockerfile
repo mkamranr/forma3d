@@ -1,4 +1,4 @@
-# Build context: repository root (so the shared package can be installed in later phases).
+# Build context: repository root (so the shared contracts package can be installed).
 FROM python:3.12.16-slim-bookworm AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -9,6 +9,8 @@ RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app 
 WORKDIR /app
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt
+COPY shared/ /opt/forma3d-shared/
+RUN pip install /opt/forma3d-shared
 
 FROM base AS dev
 COPY backend/requirements-dev.txt ./requirements-dev.txt

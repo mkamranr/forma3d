@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
-from app.api import health
+from app.api import health, internal
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
@@ -17,6 +17,8 @@ from app.core.logging import configure_logging, get_logger
 from app.database.session import Database
 from app.middleware.correlation import CorrelationIdMiddleware
 from app.services.rate_limit import MemoryRateLimiter, RateLimiter, RedisRateLimiter
+from app.services.storage import ProjectStorage
+from app.services.version_service import reconcile_storage
 
 log = get_logger(__name__)
 
@@ -39,6 +41,13 @@ def create_app(
             RedisRateLimiter(app.state.redis) if app.state.redis is not None else MemoryRateLimiter()
         )
         log.info("app.startup", env=settings.app_env)
+        try:
+            async with app.state.db.sessionmaker() as session:
+                await reconcile_storage(
+                    session, ProjectStorage(settings.data_root), orphan_minutes=settings.staging_orphan_minutes
+                )
+        except Exception as exc:  # never block startup on recovery
+            log.warning("storage.reconcile_failed", error=type(exc).__name__)
         try:
             yield
         finally:
@@ -70,6 +79,7 @@ def create_app(
 
     app.include_router(health.router)
     app.include_router(api_router)
+    app.include_router(internal.router)
     return app
 
 

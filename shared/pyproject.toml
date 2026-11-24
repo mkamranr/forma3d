@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forma3d-shared"
+version = "1.0.0"
+description = "Forma3D shared contracts: modeling DSL, validator, job and event schemas"
+requires-python = ">=3.10"
+dependencies = ["pydantic>=2.10,<3"]
+
+[tool.setuptools.packages.find]
+include = ["forma3d_shared*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["UP007", "UP045"]  # keep Optional[...] in pydantic contracts consumed by several runtimes

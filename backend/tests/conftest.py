@@ -45,11 +45,10 @@ async def client(settings: Settings, db: Database) -> AsyncIterator[AsyncClient]
             yield c
 
 
-async def register(client: AsyncClient, email: str = "a@example.com", password: str = "s3cret-pass",
-                   name: str = "Alice") -> dict:
-    res = await client.post(
-        "/api/v1/auth/register", json={"email": email, "password": password, "display_name": name}
-    )
+async def register(
+    client: AsyncClient, email: str = "a@example.com", password: str = "s3cret-pass", name: str = "Alice"
+) -> dict:
+    res = await client.post("/api/v1/auth/register", json={"email": email, "password": password, "display_name": name})
     assert res.status_code == 201, res.text
     return res.json()
 

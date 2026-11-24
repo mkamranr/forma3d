@@ -13,9 +13,7 @@ class SceneVersion(UUIDPk, CreatedAt, Base):
     """Immutable once status == 'committed'. Paths are relative to DATA_ROOT."""
 
     __tablename__ = "scene_versions"
-    __table_args__ = (
-        UniqueConstraint("project_id", "version_number", name="uq_scene_versions_project_number"),
-    )
+    __table_args__ = (UniqueConstraint("project_id", "version_number", name="uq_scene_versions_project_number"),)
 
     project_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
@@ -29,7 +27,8 @@ class SceneVersion(UUIDPk, CreatedAt, Base):
     thumbnail_path: Mapped[str | None] = mapped_column(String(512))
     operation_batch_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     message_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
-    object_inventory: Mapped[list[dict[str, Any]]] = mapped_column(JSONType, default=list, nullable=False)
+    # forma3d_shared SceneInventory as JSON.
+    object_inventory: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
     summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="committed", nullable=False, index=True)
 
@@ -39,9 +38,7 @@ class SceneObject(UUIDPk, Timestamps, Base):
     `blender_object_id` holds the stable application object id (e.g. `desk_top`)."""
 
     __tablename__ = "scene_objects"
-    __table_args__ = (
-        UniqueConstraint("project_id", "blender_object_id", name="uq_scene_objects_project_obj"),
-    )
+    __table_args__ = (UniqueConstraint("project_id", "blender_object_id", name="uq_scene_objects_project_obj"),)
 
     project_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True

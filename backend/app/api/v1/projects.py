@@ -30,9 +30,7 @@ async def list_projects(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> ProjectList:
-    return await ProjectService(session).list(
-        user.id, q=q, status=status_filter, sort=sort, limit=limit, offset=offset
-    )
+    return await ProjectService(session).list(user.id, q=q, status=status_filter, sort=sort, limit=limit, offset=offset)
 
 
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)

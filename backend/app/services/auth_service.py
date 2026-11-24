@@ -113,6 +113,4 @@ class AuthService:
             token_hash=hash_refresh_token(plain),
             expires_at=utcnow() + timedelta(seconds=self.settings.refresh_token_ttl_seconds),
         )
-        return IssuedTokens(
-            user=user, access_token=create_access_token(user.id, self.settings), refresh_token=plain
-        )
+        return IssuedTokens(user=user, access_token=create_access_token(user.id, self.settings), refresh_token=plain)

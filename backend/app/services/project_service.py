@@ -59,9 +59,7 @@ class ProjectService:
         limit: int = 50,
         offset: int = 0,
     ) -> ProjectList:
-        rows, total = await self.repo.list_owned(
-            user_id, q=q, status=status, sort=sort, limit=limit, offset=offset
-        )
+        rows, total = await self.repo.list_owned(user_id, q=q, status=status, sort=sort, limit=limit, offset=offset)
         return ProjectList(items=[to_out(p, c) for p, c in rows], total=total)
 
     async def get(self, user_id: uuid.UUID, project_id: uuid.UUID) -> ProjectOut:

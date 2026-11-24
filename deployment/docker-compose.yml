@@ -87,11 +87,21 @@ services:
     build:
       context: ..
       dockerfile: blender-worker/Dockerfile
+      target: runtime
     env_file: ../.env
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8000
+      BLENDER_BIN: /opt/blender/blender
     volumes:
       - project_data:/data
+    tmpfs:
+      - /tmp:size=2g,mode=1777
+    # Let an in-flight Blender job finish or be cancelled cleanly (job timeout + grace).
+    stop_grace_period: 60s
     depends_on:
       redis:
+        condition: service_healthy
+      backend:
         condition: service_healthy
     # Internal network only: no inbound ports, no internet egress.
     networks: [data]

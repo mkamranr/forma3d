@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     internal_service_token: str = "change-me-internal"
     data_root: str = "/data"
 
+    # Modeling pipeline
+    render_thumbnails: bool = True
+    thumbnail_size: int = Field(default=384, ge=64, le=2048)
+    job_timeout_seconds: int = Field(default=300, ge=10, le=3600)
+    staging_orphan_minutes: int = 60
+
     rate_limit_auth_per_minute: int = 20
     rate_limit_jobs_per_minute: int = 10
 

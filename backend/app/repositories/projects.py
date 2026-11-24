@@ -39,9 +39,7 @@ class ProjectRepository:
 
     async def get_owned(self, user_id: uuid.UUID, project_id: uuid.UUID) -> Project | None:
         result = await self.session.execute(
-            select(Project).where(
-                Project.id == project_id, Project.user_id == user_id, Project.status != "deleted"
-            )
+            select(Project).where(Project.id == project_id, Project.user_id == user_id, Project.status != "deleted")
         )
         return result.scalar_one_or_none()
 

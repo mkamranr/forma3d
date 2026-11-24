@@ -23,6 +23,10 @@ class Job(UUIDPk, CreatedAt, Base):
     status: Mapped[str] = mapped_column(String(16), default="queued", nullable=False, index=True)
     # Latest real stage event — never a fabricated percentage.
     progress: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    # Server-side job context (expected head, target version, staging dir). Never exposed raw.
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    # Redacted diagnostics from workers (log tail, error codes) for operators.
+    diagnostics: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
     worker_id: Mapped[str | None] = mapped_column(String(64))
     error_message: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

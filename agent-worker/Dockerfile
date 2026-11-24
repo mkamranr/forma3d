@@ -5,6 +5,8 @@ RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app 
 WORKDIR /app
 COPY agent-worker/requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt
+COPY shared/ /opt/forma3d-shared/
+RUN pip install /opt/forma3d-shared
 COPY agent-worker/app ./app
 COPY deployment/scripts/healthcheck_liveness.py /usr/local/bin/healthcheck_liveness.py
 USER app

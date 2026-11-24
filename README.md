@@ -11,8 +11,8 @@ Full specification: [`project-specification.md`](project-specification.md).
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Infrastructure, auth, project CRUD, dashboard, health checks | **Done** (pending first run on the Docker host) |
-| 2 | Blender worker, modeling DSL v1, validator, GLB export | Next |
-| 3 | Interactive workspace wired to real scenes | — |
+| 2 | Blender worker, modeling DSL v1, validator, GLB export, versioned commits | **Done** (pending first run on the Docker host) |
+| 3 | Interactive workspace wired to real scenes | Next |
 | 4 | LLM integration (vLLM) — end-to-end vertical slice | — |
 | 5–8 | LangGraph agents, conversational editing, advanced modeling, hardening | — |
 
@@ -22,8 +22,8 @@ Full specification: [`project-specification.md`](project-specification.md).
 frontend/        React + TS + Vite (R3F viewport, TanStack Query, Zustand, Tailwind for new screens)
 backend/         FastAPI, SQLAlchemy 2 (async), Alembic, JWT + rotating refresh cookies
 agent-worker/    LangGraph agent worker (Phase 1: heartbeat stub)
-blender-worker/  Blender job worker (Phase 1: heartbeat stub)
-shared/          Shared Pydantic contracts (DSL, plans, jobs) — populated in Phase 2
+blender-worker/  Redis-stream consumer + headless Blender 4.5 runtime (bl_runtime: stdlib + bpy)
+shared/          forma3d_shared: modeling DSL, validator, job/event/inventory contracts
 deployment/      docker-compose.yml, docker-compose.dev.yml, scripts
 docs/            Architecture notes, original prototype reference
 ```
@@ -58,8 +58,19 @@ Backend (Python 3.10+ locally; containers use 3.12):
 ```bash
 cd backend
 python -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt   # Windows path
+.venv/Scripts/pip install -e ../shared
 .venv/Scripts/python -m pytest -q          # SQLite + fakeredis, no services needed
 ```
+
+Shared contracts and Blender worker (a local Blender 4.5 install enables the integration tests):
+
+```bash
+cd shared && ../backend/.venv/Scripts/python -m pytest -q
+cd blender-worker && BLENDER_BIN=/path/to/blender ../backend/.venv/Scripts/python -m pytest -q
+cd backend && BLENDER_BIN=/path/to/blender .venv/Scripts/python -m pytest -q tests/test_e2e_blender.py
+```
+
+Run one job spec without Redis/backend: `cd blender-worker && python -m app.run_once spec.json`.
 
 Frontend (Node 20):
 
@@ -71,7 +82,7 @@ npm run build
 VITE_API_PROXY=http://localhost:8000 npm run dev
 ```
 
-## API (Phase 1)
+## API
 
 | Method | Path | Notes |
 |---|---|---|
@@ -81,15 +92,32 @@ VITE_API_PROXY=http://localhost:8000 npm run dev
 | GET/POST | `/api/v1/projects` | `?q=&status=active\|archived\|all&sort=&limit=&offset=` |
 | GET/PUT/DELETE | `/api/v1/projects/{id}` | owner-scoped; other users get 404 |
 | POST | `/api/v1/projects/{id}/duplicate` | |
+| POST | `/api/v1/projects/{id}/modeling/execute` | raw DSL batch → 202 `{job_id}`; 422 `invalid_batch` with `issues`; 409 `project_busy` |
+| GET | `/api/v1/jobs/{id}` · POST `/api/v1/jobs/{id}/cancel` | |
+| GET | `/api/v1/jobs/{id}/events` | SSE (`Last-Event-ID` replay) |
+| GET | `/api/v1/projects/{id}/versions` · `/versions/{vid}` | detail includes the scene inventory |
+| GET | `/api/v1/projects/{id}/versions/{vid}/assets/{kind}` | kind = glb, thumbnail, blend, inventory, operations; ownership-checked |
+| GET | `/api/v1/projects/{id}/thumbnail` | current head thumbnail |
+| POST | `/internal/v1/jobs/{id}/start` · `complete` | worker callbacks, `X-Internal-Token`, internal network only |
+
+DSL reference: [`docs/modeling-dsl.md`](docs/modeling-dsl.md). Try it after `make up` (token from login):
+
+```bash
+python -c "import json;from forma3d_shared.examples import desk_batch;print(json.dumps(desk_batch()))" > desk.json
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"      --data @desk.json http://<docker-host>:3000/api/v1/projects/$PROJECT/modeling/execute
+```
 
 Interactive docs at `/api/docs` when `APP_ENV != production`.
 
-## Known limitations (Phase 1)
+## Known limitations
 
+- Blender runs CPU-only (Cycles thumbnail at 384 px, a few seconds per job); GPU compose is Phase 8.
+- The Linux Blender image pins and checksum-verifies the official tarball but has not yet been built
+  on the Docker host; all Blender tests so far ran against Blender 4.5.17 on Windows.
 - The workspace still runs the prototype's **local demo scene** and simulated assistant
-  (marked `DEMO`); Blender, the LLM and real versions arrive in Phases 2–4.
+  (marked `DEMO`); wiring it to real versions is Phase 3, the LLM is Phase 4.
 - Project delete is a soft delete; file purge/retention job is Phase 8.
-- Duplicate copies metadata only until versioned storage exists (Phase 2).
+- Duplicate still copies project metadata only (not versions); copying the head version is Phase 6.
 - Image tags are pinned; digest pinning and the offline bundle are Phase 8.
 - shadcn/ui is approximated with small hand-written Tailwind components (`frontend/src/components/ui`)
   rather than the shadcn CLI, to avoid Radix/preflight conflicts with the prototype styles.

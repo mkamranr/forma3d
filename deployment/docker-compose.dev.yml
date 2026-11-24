@@ -22,5 +22,10 @@ services:
       - ../agent-worker/app:/app/app
 
   blender-worker:
+    image: forma3d/blender-worker:dev
+    build:
+      target: dev
     volumes:
       - ../blender-worker/app:/app/app
+      - ../blender-worker/tests:/app/tests
+      - project_data:/data

@@ -10,9 +10,17 @@ class AppError(Exception):
     status_code = 400
     code = "bad_request"
 
-    def __init__(self, message: str, *, code: str | None = None, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        status_code: int | None = None,
+        extra: dict | None = None,
+    ) -> None:
         super().__init__(message)
         self.message = message
+        self.extra = extra or {}
         if code:
             self.code = code
         if status_code:
@@ -27,6 +35,11 @@ class NotFoundError(AppError):
 class ConflictError(AppError):
     status_code = 409
     code = "conflict"
+
+
+class ServiceUnavailableError(AppError):
+    status_code = 503
+    code = "service_unavailable"
 
 
 class AuthError(AppError):
@@ -45,6 +58,6 @@ def register_error_handlers(app: FastAPI) -> None:
         headers = {"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None
         return JSONResponse(
             status_code=exc.status_code,
-            content={"detail": exc.message, "code": exc.code},
+            content={"detail": exc.message, "code": exc.code, **exc.extra},
             headers=headers,
         )

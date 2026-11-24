@@ -8,8 +8,18 @@ from typing import Any
 
 import structlog
 
-_SENSITIVE_KEYS = {"password", "password_hash", "token", "access_token", "refresh_token",
-                   "authorization", "cookie", "api_key", "secret", "jwt_secret"}
+_SENSITIVE_KEYS = {
+    "password",
+    "password_hash",
+    "token",
+    "access_token",
+    "refresh_token",
+    "authorization",
+    "cookie",
+    "api_key",
+    "secret",
+    "jwt_secret",
+}
 
 
 def _redact(_: Any, __: str, event_dict: dict[str, Any]) -> dict[str, Any]:

@@ -31,8 +31,7 @@ def _token_response(response: Response, issued: IssuedTokens, settings: Settings
     )
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED,
-             dependencies=[_auth_limit])
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED, dependencies=[_auth_limit])
 async def register(
     body: RegisterRequest,
     response: Response,

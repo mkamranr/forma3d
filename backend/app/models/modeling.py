@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, String, Uuid
+from sqlalchemy import DateTime, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base, CreatedAt, JSONType, UUIDPk
@@ -33,6 +33,8 @@ class OperationBatch(UUIDPk, CreatedAt, Base):
     version_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     modeling_plan_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     operations: Mapped[list[dict[str, Any]]] = mapped_column(JSONType, default=list, nullable=False)
+    batch_sha256: Mapped[str | None] = mapped_column(String(64))
+    summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
     validation_result: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
     execution_status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False, index=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
