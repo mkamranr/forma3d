@@ -1,0 +1,22 @@
+/* Toast notifications */
+
+.toast {
+  position:fixed;
+  bottom:22px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:10;
+  background:#252c38;
+  color:#fff;
+  border-radius:8px;
+  padding:10px 14px;
+  box-shadow:0 8px 25px #1113;
+  font-size:11px;
+  display:flex;
+  align-items:center;
+  gap:7px;
+}
+
+.toast svg {
+  color:#70d2a3;
+}

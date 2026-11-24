@@ -1,0 +1,209 @@
+/* 3D viewport column, toolbar and footer */
+
+.viewport-column {
+  flex:1;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  background:#f0f2f5;
+}
+
+.viewport-toolbar {
+  height:45px;
+  flex-shrink:0;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 13px;
+  background:#fff;
+  border-bottom:1px solid #e8eaf0;
+}
+
+.tool-group {
+  display:flex;
+  align-items:center;
+  gap:3px;
+}
+
+.tool-btn {
+  width:29px;
+  height:29px;
+  border-radius:6px;
+}
+
+.tool-btn.active {
+  background:#eeecff;
+  color:#6659d2;
+}
+
+.tool-divider {
+  width:1px;
+  height:19px;
+  background:#e7e8ed;
+  margin:0 6px;
+}
+
+.viewport {
+  flex:1;
+  min-height:300px;
+  position:relative;
+  overflow:hidden;
+  background:#202630;
+}
+
+.viewport canvas {
+  display:block;
+  outline:none;
+}
+
+.viewport-label {
+  position:absolute;
+  top:14px;
+  left:15px;
+  color:#b8c1ce;
+  background:#29323eaa;
+  border:1px solid #59627066;
+  border-radius:5px;
+  padding:6px 8px;
+  font-size:8px;
+  letter-spacing:.8px;
+  pointer-events:none;
+}
+
+.live-indicator {
+  width:6px;
+  height:6px;
+  margin-right:5px;
+}
+
+.viewport-label-sep {
+  margin:0 6px;
+  color:#6e7a89;
+}
+
+.viewport-object-count {
+  position:absolute;
+  top:14px;
+  right:15px;
+  background:#29323eaa;
+  border:1px solid #59627066;
+  border-radius:5px;
+  padding:6px 8px;
+  color:#c3ccd7;
+  font-size:9px;
+  display:flex;
+  align-items:center;
+  gap:5px;
+  pointer-events:none;
+}
+
+.viewport-bottom-left {
+  position:absolute;
+  left:18px;
+  bottom:18px;
+  display:flex;
+  gap:4px;
+}
+
+.axis {
+  width:17px;
+  height:17px;
+  border-radius:4px;
+  display:grid;
+  place-items:center;
+  font-size:9px;
+  font-weight:700;
+  background:#303a47d9;
+}
+
+.axis-x {
+  color:#ef7979;
+}
+
+.axis-y {
+  color:#76ce9a;
+}
+
+.axis-z {
+  color:#7da8f4;
+}
+
+.viewport-bottom-right {
+  position:absolute;
+  right:14px;
+  bottom:14px;
+  display:flex;
+  gap:4px;
+}
+
+.viewport-bottom-right button {
+  width:28px;
+  height:28px;
+  border:1px solid #566170;
+  background:#303a47d9;
+  color:#cbd3dd;
+  border-radius:6px;
+  display:grid;
+  place-items:center;
+  cursor:pointer;
+}
+
+.selection-chip {
+  position:absolute;
+  bottom:16px;
+  left:50%;
+  transform:translateX(-50%);
+  padding:6px 10px;
+  border-radius:20px;
+  background:#303a47e8;
+  color:#dce3ec;
+  font-size:9px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  pointer-events:none;
+}
+
+.selection-dot {
+  width:6px;
+  height:6px;
+  background:#8b80f2;
+  border-radius:50%;
+}
+
+.viewport-footer {
+  height:29px;
+  background:#fff;
+  border-bottom:1px solid #e7e9ef;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 12px;
+  color:#9299a6;
+  font-size:9px;
+}
+
+.footer-left, .footer-right {
+  display:flex;
+  align-items:center;
+  gap:13px;
+}
+
+.footer-item {
+  display:flex;
+  align-items:center;
+  gap:5px;
+}
+
+.keycap {
+  border:1px solid #e2e4e9;
+  border-radius:3px;
+  padding:2px 4px;
+  font-size:8px;
+  color:#778091;
+  background:#fafbfc;
+}
+
+.footer-sep {
+  color:#d1d4db;
+}

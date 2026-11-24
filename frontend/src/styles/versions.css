@@ -1,0 +1,51 @@
+/* Recent activity / version history strip */
+
+.history-strip {
+  height:64px;
+  flex-shrink:0;
+  background:#fff;
+  display:flex;
+  align-items:center;
+  padding:0 14px;
+  gap:18px;
+}
+
+.history-title {
+  white-space:nowrap;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+
+.history-items {
+  display:flex;
+  align-items:center;
+  gap:16px;
+  min-width:0;
+  overflow:hidden;
+}
+
+.history-item {
+  font-size:9px;
+  color:#717a8a;
+  white-space:nowrap;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+
+.history-bullet {
+  width:5px;
+  height:5px;
+  border-radius:50%;
+  background:#9a91e9;
+}
+
+.history-all {
+  margin-left:auto;
+  display:flex;
+  align-items:center;
+  gap:3px;
+  font-size:9px;
+  white-space:nowrap;
+}

@@ -1,0 +1,146 @@
+# Forma3D — Docker Compose (base / production-like).
+# Usage (from repo root):  docker compose --env-file .env -f deployment/docker-compose.yml up -d --build
+# Image versions are pinned by tag; digests are pinned for the offline bundle in Phase 8.
+
+name: forma3d
+
+x-app-hardening: &app-hardening
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  frontend:
+    <<: *app-hardening
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-3000}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [edge, app]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      target: runtime
+    image: forma3d/backend:local
+    command: ["alembic", "upgrade", "head"]
+    env_file: ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+    restart: "no"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
+  backend:
+    <<: *app-hardening
+    image: forma3d/backend:local
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      target: runtime
+    env_file: ../.env
+    volumes:
+      - project_data:/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [app, data]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+
+  agent-worker:
+    <<: *app-hardening
+    build:
+      context: ..
+      dockerfile: agent-worker/Dockerfile
+    env_file: ../.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    # `llm` gives outbound access to the configured LLM endpoint only this service needs.
+    networks: [data, llm]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1G }
+
+  blender-worker:
+    <<: *app-hardening
+    build:
+      context: ..
+      dockerfile: blender-worker/Dockerfile
+    env_file: ../.env
+    volumes:
+      - project_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    # Internal network only: no inbound ports, no internet egress.
+    networks: [data]
+    deploy:
+      resources:
+        limits: { cpus: "${BLENDER_CPUS:-2.0}", memory: "${BLENDER_MEMORY:-4G}" }
+
+  postgres:
+    image: postgres:17.12-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-forma3d}
+      POSTGRES_USER: ${POSTGRES_USER:-forma3d}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [data]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1G }
+
+  redis:
+    image: redis:7.4.12-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [data]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M }
+
+networks:
+  edge: {}                 # published frontend port
+  app: { internal: true }  # frontend (nginx) <-> backend
+  data: { internal: true } # backend, workers, postgres, redis
+  llm: {}                  # agent-worker egress to the LLM endpoint
+
+volumes:
+  postgres_data:
+  redis_data:
+  project_data:

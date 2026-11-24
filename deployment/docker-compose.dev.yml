@@ -1,0 +1,26 @@
+# Development overrides: hot reload, dev dependencies (pytest), source mounts.
+# docker compose --env-file .env -f deployment/docker-compose.yml -f deployment/docker-compose.dev.yml up -d --build
+
+services:
+  backend:
+    image: forma3d/backend:dev
+    build:
+      target: dev
+    volumes:
+      - ../backend:/app
+      - project_data:/data
+    environment:
+      APP_ENV: development
+
+  migrate:
+    image: forma3d/backend:dev
+    build:
+      target: dev
+
+  agent-worker:
+    volumes:
+      - ../agent-worker/app:/app/app
+
+  blender-worker:
+    volumes:
+      - ../blender-worker/app:/app/app

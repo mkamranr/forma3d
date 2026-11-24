@@ -1,0 +1,40 @@
+/*
+ * Tailwind is used for new screens (auth, dashboard). Preflight is intentionally NOT
+ * imported so the prototype studio styles keep their exact look.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+@theme {
+  --font-sans: 'DM Sans', sans-serif;
+  --font-display: 'Manrope', sans-serif;
+
+  --color-brand-50: #f3f1ff;
+  --color-brand-100: #e9e6ff;
+  --color-brand-400: #8b80e6;
+  --color-brand-500: #6759d9;
+  --color-brand-600: #5a4cc9;
+  --color-brand-700: #4f46bd;
+
+  --color-ink-900: #202633;
+  --color-ink-600: #626b7c;
+  --color-ink-500: #727b8c;
+  --color-ink-400: #8b92a0;
+  --color-ink-300: #b4b9c4;
+
+  --color-line: #e7e8ed;
+  --color-surface: #f5f6f8;
+  --color-surface-2: #f0f1f6;
+  --color-viewport: #202630;
+
+  --color-danger-500: #d0574f;
+  --color-danger-600: #b8463f;
+  --color-success-500: #49b98b;
+}
+
+@layer base {
+  button, input, select, textarea {
+    font: inherit;
+  }
+}

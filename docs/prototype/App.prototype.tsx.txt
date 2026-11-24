@@ -1,0 +1,214 @@
+import { useMemo, useState } from 'react'
+import { Canvas } from '@react-three/fiber'
+import { Environment, Grid, OrbitControls, ContactShadows, TransformControls } from '@react-three/drei'
+import * as THREE from 'three'
+import {
+  Box, ChevronDown, ChevronRight, CircleHelp, Command, Download, Eye, EyeOff, FilePlus2,
+  Folder, Layers3, Maximize2, MessageSquareText, MoreHorizontal, MousePointer2, Plus,
+  Redo2, RotateCcw, Send, Settings2, Sparkles, Square, Undo2, WandSparkles, ZoomIn,
+  ZoomOut, Cuboid, Check, Clock3, PanelLeftClose, PanelRightClose, X, SlidersHorizontal
+} from 'lucide-react'
+
+type ModelObject = {
+  id: string
+  name: string
+  kind: 'box' | 'sphere' | 'cylinder'
+  position: [number, number, number]
+  scale: [number, number, number]
+  color: string
+  visible: boolean
+}
+
+type Message = { role: 'assistant' | 'user'; text: string; time: string }
+
+const initialObjects: ModelObject[] = [
+  { id: 'desk-top', name: 'Tabletop', kind: 'box', position: [0, 1.35, 0], scale: [3.5, .22, 1.8], color: '#C99563', visible: true },
+  { id: 'leg-1', name: 'Leg · Front left', kind: 'box', position: [-1.48, .65, .68], scale: [.18, 1.3, .18], color: '#5D6470', visible: true },
+  { id: 'leg-2', name: 'Leg · Front right', kind: 'box', position: [1.48, .65, .68], scale: [.18, 1.3, .18], color: '#5D6470', visible: true },
+  { id: 'leg-3', name: 'Leg · Back left', kind: 'box', position: [-1.48, .65, -.68], scale: [.18, 1.3, .18], color: '#5D6470', visible: true },
+  { id: 'leg-4', name: 'Leg · Back right', kind: 'box', position: [1.48, .65, -.68], scale: [.18, 1.3, .18], color: '#5D6470', visible: true }
+]
+
+function MeshItem({ item, selected, onSelect }: { item: ModelObject; selected: boolean; onSelect: () => void }) {
+  const geometry = item.kind === 'sphere' ? <sphereGeometry args={[.65, 32, 24]} /> :
+    item.kind === 'cylinder' ? <cylinderGeometry args={[.55, .55, 1, 32]} /> : <boxGeometry args={[1, 1, 1]} />
+  return (
+    <mesh position={item.position} scale={item.scale} onClick={(e) => { e.stopPropagation(); onSelect() }} castShadow receiveShadow visible={item.visible}>
+      {geometry}
+      <meshStandardMaterial color={item.color} roughness={.58} metalness={.08} emissive={selected ? '#182b54' : '#000000'} emissiveIntensity={selected ? .18 : 0} />
+    </mesh>
+  )
+}
+
+function Scene({ objects, selectedId, setSelectedId }: { objects: ModelObject[]; selectedId: string | null; setSelectedId: (id: string) => void }) {
+  return <>
+    <color attach="background" args={['#202630']} />
+    <ambientLight intensity={.75} />
+    <directionalLight position={[5, 8, 5]} intensity={2.2} castShadow shadow-mapSize={[1024, 1024]} />
+    <Environment preset="city" />
+    <Grid position={[0, -.02, 0]} args={[18, 18]} cellSize={.5} cellThickness={.5} cellColor="#566170" sectionSize={2} sectionThickness={1} sectionColor="#8290a2" fadeDistance={22} infiniteGrid />
+    {objects.map(obj => <MeshItem key={obj.id} item={obj} selected={obj.id === selectedId} onSelect={() => setSelectedId(obj.id)} />)}
+    <ContactShadows position={[0, -.015, 0]} opacity={.38} scale={15} blur={2.5} far={4} />
+    <OrbitControls makeDefault minDistance={3} maxDistance={18} />
+  </>
+}
+
+const stamp = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+export default function App() {
+  const [objects, setObjects] = useState<ModelObject[]>(initialObjects)
+  const [selectedId, setSelectedId] = useState<string | null>('desk-top')
+  const [messages, setMessages] = useState<Message[]>([
+    { role: 'assistant', text: 'Your workspace is ready. I’ve created a clean, modern desk as a starting point. Tell me what you’d like to change.', time: '10:42 AM' },
+    { role: 'assistant', text: 'Try asking me to add a sphere, change the tabletop colour, or make the desk wider.', time: '10:42 AM' }
+  ])
+  const [prompt, setPrompt] = useState('')
+  const [activeTab, setActiveTab] = useState<'properties' | 'materials'>('properties')
+  const [activeTool, setActiveTool] = useState('select')
+  const [showChat, setShowChat] = useState(true)
+  const [showInspector, setShowInspector] = useState(true)
+  const [showGrid, setShowGrid] = useState(true)
+  const [toast, setToast] = useState('')
+  const [version, setVersion] = useState(3)
+  const [history, setHistory] = useState(['Desk created', 'Tabletop material refined', 'Leg proportions adjusted'])
+  const selected = objects.find(o => o.id === selectedId) ?? null
+  const visibleObjects = objects.filter(o => o.visible)
+  const objectCount = objects.length
+
+  const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2200) }
+  const updateSelected = (patch: Partial<ModelObject>) => {
+    if (!selectedId) return
+    setObjects(prev => prev.map(o => o.id === selectedId ? { ...o, ...patch } : o))
+  }
+  const addPrimitive = (kind: ModelObject['kind']) => {
+    const id = `${kind}-${Date.now()}`
+    const name = kind === 'box' ? 'New cube' : kind === 'sphere' ? 'New sphere' : 'New cylinder'
+    setObjects(prev => [...prev, { id, name, kind, position: [0, 1.8, 0], scale: kind === 'box' ? [.8, .8, .8] : [1, 1, 1], color: '#8B9CFB', visible: true }])
+    setSelectedId(id); setHistory(prev => [...prev, `${name} added`]); setVersion(v => v + 1)
+    notify(`${name} added to scene`)
+  }
+
+  const sendPrompt = () => {
+    const text = prompt.trim()
+    if (!text) return
+    setMessages(prev => [...prev, { role: 'user', text, time: stamp() }])
+    setPrompt('')
+    const lower = text.toLowerCase()
+    let reply = 'I’ve interpreted your instruction. This prototype demonstrates the conversation flow; connect the modeling API to execute more advanced edits.'
+    if (lower.includes('sphere') || lower.includes('ball')) {
+      addPrimitive('sphere'); reply = 'Added a sphere to the scene. You can select it in the scene tree to adjust its size, position and material.'
+    } else if (lower.includes('cylinder')) {
+      addPrimitive('cylinder'); reply = 'Added a cylinder to the scene. Select it to fine-tune its dimensions.'
+    } else if (lower.includes('cube') || lower.includes('box')) {
+      addPrimitive('box'); reply = 'Added a cube to the scene. It is ready for further editing.'
+    } else if (lower.includes('red') || lower.includes('blue') || lower.includes('green') || lower.includes('black') || lower.includes('white') || lower.includes('oak')) {
+      const color = lower.includes('red') ? '#C96E68' : lower.includes('blue') ? '#6C8FD9' : lower.includes('green') ? '#6E9C82' : lower.includes('black') ? '#30343B' : lower.includes('white') ? '#E8E9E6' : '#C99563'
+      const target = objects.find(o => o.name.toLowerCase().includes('tabletop'))?.id
+      if (target) setObjects(prev => prev.map(o => o.id === target ? { ...o, color } : o))
+      reply = 'Updated the tabletop finish. You can fine-tune the exact colour in the Materials panel.'
+      setHistory(prev => [...prev, 'Tabletop finish updated']); setVersion(v => v + 1)
+    } else if (lower.includes('wider') || lower.includes('larger') || lower.includes('bigger')) {
+      const target = objects.find(o => o.name.toLowerCase().includes('tabletop'))?.id
+      if (target) setObjects(prev => prev.map(o => o.id === target ? { ...o, scale: [o.scale[0] * 1.15, o.scale[1], o.scale[2]] } : o))
+      reply = 'Made the tabletop wider by 15%. The existing legs remain in place in this prototype.'
+      setHistory(prev => [...prev, 'Tabletop widened']); setVersion(v => v + 1)
+    } else if (lower.includes('remove') || lower.includes('delete')) {
+      const target = selectedId
+      if (target) { setObjects(prev => prev.filter(o => o.id !== target)); setSelectedId(null); reply = 'Removed the selected object from the scene.'; setHistory(prev => [...prev, 'Object removed']); setVersion(v => v + 1) }
+      else reply = 'Select an object in the scene tree first, then ask me to remove it.'
+    }
+    window.setTimeout(() => setMessages(prev => [...prev, { role: 'assistant', text: reply, time: stamp() }]), 450)
+  }
+
+  const exportScene = () => notify('Export is a UI demo — connect the Blender worker to generate GLB')
+  const reset = () => { setObjects(initialObjects); setSelectedId('desk-top'); setVersion(v => v + 1); setHistory(prev => [...prev, 'Scene reset']); notify('Scene restored to starter desk') }
+  const selectedLabel = useMemo(() => selected?.name ?? 'Nothing selected', [selected])
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand"><div className="brand-mark"><Cuboid size={20} strokeWidth={2.4}/></div><span>forma<span className="brand-light">3D</span></span><span className="brand-divider"></span><span className="workspace-name">Studio workspace <ChevronDown size={14}/></span></div>
+        <div className="top-center"><span className="save-dot"></span><span>All changes saved</span><span className="top-sep">·</span><span>Version {version}.0</span></div>
+        <div className="top-actions"><button className="icon-btn" title="Help"><CircleHelp size={17}/></button><button className="icon-btn" title="Settings"><Settings2 size={17}/></button><button className="share-btn" onClick={exportScene}><Download size={15}/> Export</button><div className="avatar">MK</div></div>
+      </header>
+
+      <div className="projectbar">
+        <div className="project-title"><span className="project-icon"><Box size={16}/></span><div><strong>Modern Writing Desk</strong><small>Untitled project <span>·</span> Edited just now</small></div></div>
+        <div className="project-actions"><button className="soft-btn" onClick={() => {setVersion(v => v + 1); setHistory(p => [...p, 'Manual snapshot saved']); notify('Version snapshot saved')}}><Clock3 size={14}/> Save version</button><button className="icon-btn"><MoreHorizontal size={18}/></button></div>
+      </div>
+
+      <main className="workspace">
+        {showChat && <aside className="chat-panel">
+          <div className="panel-heading"><div className="heading-icon ai"><Sparkles size={16}/></div><div><strong>AI Assistant</strong><small><span className="online-dot"></span> Ready to create</small></div><button className="panel-collapse" onClick={() => setShowChat(false)}><PanelLeftClose size={16}/></button></div>
+          <div className="chat-context"><div className="context-label">CURRENT PROJECT</div><div className="context-row"><Cuboid size={15}/><span>Modern Writing Desk</span><span className="context-count">{objectCount} objects</span></div></div>
+          <div className="messages">
+            <div className="date-divider"><span>Today</span></div>
+            {messages.map((m, i) => <div className={`message ${m.role}`} key={i}>
+              {m.role === 'assistant' && <div className="assistant-avatar"><Sparkles size={13}/></div>}
+              <div className="message-body"><div className="message-meta">{m.role === 'assistant' ? 'Forma Assistant' : 'You'} <span>{m.time}</span></div><div className="bubble">{m.text}</div></div>
+            </div>)}
+            <div className="agent-status"><span className="status-check"><Check size={11}/></span><span>Scene context synced</span><span className="status-time">just now</span></div>
+          </div>
+          <div className="suggestions"><span>TRY ASKING</span><button onClick={() => setPrompt('Add a sphere to the desk')}>Add a sphere</button><button onClick={() => setPrompt('Make the tabletop wider')}>Widen tabletop</button></div>
+          <div className="composer-wrap"><div className="composer"><textarea value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={e => {if (e.key === 'Enter' && !e.shiftKey) {e.preventDefault(); sendPrompt()}}} placeholder="Describe what you want to create..." rows={2}/><div className="composer-bottom"><button className="attach-btn" title="Add attachment"><Plus size={17}/></button><span className="composer-hint"><Command size={11}/> Enter to send</span><button className="send-btn" onClick={sendPrompt} disabled={!prompt.trim()}><Send size={15}/></button></div></div><div className="composer-foot"><WandSparkles size={12}/> AI-generated changes can be reviewed before applying</div></div>
+        </aside>}
+
+        <section className="viewport-column">
+          <div className="viewport-toolbar">
+            <div className="tool-group">
+              {!showChat && <button className="tool-btn" onClick={() => setShowChat(true)} title="Show AI assistant"><MessageSquareText size={16}/></button>}
+              <button className={`tool-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool('select')} title="Select"><MousePointer2 size={16}/></button>
+              <button className={`tool-btn ${activeTool === 'move' ? 'active' : ''}`} onClick={() => setActiveTool('move')} title="Move"><MoveIcon/></button>
+              <button className={`tool-btn ${activeTool === 'scale' ? 'active' : ''}`} onClick={() => setActiveTool('scale')} title="Scale"><Maximize2 size={16}/></button>
+              <span className="tool-divider"></span>
+              <button className="tool-btn" onClick={() => addPrimitive('box')} title="Add cube"><Square size={15}/></button>
+              <button className="tool-btn" onClick={() => addPrimitive('sphere')} title="Add sphere"><CircleShape/></button>
+              <button className="tool-btn" onClick={() => addPrimitive('cylinder')} title="Add cylinder"><Cuboid size={16}/></button>
+            </div>
+            <div className="tool-group right-tools"><button className="tool-btn" onClick={() => setShowGrid(v => !v)} title="Toggle grid"><SlidersHorizontal size={15}/></button><button className="tool-btn" onClick={reset} title="Reset scene"><RotateCcw size={15}/></button>{!showInspector && <button className="tool-btn" onClick={() => setShowInspector(true)} title="Show inspector"><PanelRightClose size={15}/></button>}</div>
+          </div>
+          <div className="viewport">
+            <Canvas shadows camera={{ position: [5.5, 4.2, 6.5], fov: 42 }} onPointerMissed={() => setSelectedId('')}>
+              <Scene objects={objects} selectedId={selectedId} setSelectedId={setSelectedId}/>
+            </Canvas>
+            <div className="viewport-label"><span className="live-indicator"></span> LIVE 3D PREVIEW <span className="viewport-label-sep">/</span> PERSPECTIVE</div>
+            <div className="viewport-object-count"><Layers3 size={13}/> {visibleObjects.length} visible</div>
+            <div className="viewport-bottom-left"><span className="axis axis-x">X</span><span className="axis axis-y">Y</span><span className="axis axis-z">Z</span></div>
+            <div className="viewport-bottom-right"><button title="Zoom in"><ZoomIn size={15}/></button><button title="Zoom out"><ZoomOut size={15}/></button><button title="Frame object"><Maximize2 size={15}/></button></div>
+            {selected && <div className="selection-chip"><span className="selection-dot"></span>{selected.name}</div>}
+          </div>
+          <div className="viewport-footer"><div className="footer-left"><span className="footer-item"><span className="keycap">LMB</span> Select</span><span className="footer-item"><span className="keycap">MMB</span> Orbit</span><span className="footer-item"><span className="keycap">Scroll</span> Zoom</span></div><div className="footer-right"><span>Blender scene · Demo mode</span><span className="footer-sep">|</span><span>Metric · Meters</span></div></div>
+          <div className="history-strip"><div className="history-title"><Clock3 size={14}/> RECENT ACTIVITY</div><div className="history-items">{history.slice(-3).reverse().map((h, i) => <span className="history-item" key={i}><span className="history-bullet"></span>{h}</span>)}</div><button className="history-all" onClick={() => notify('Version history panel will be connected to project API')}>View history <ChevronRight size={13}/></button></div>
+        </section>
+
+        {showInspector && <aside className="inspector-panel">
+          <div className="inspector-tabs"><button className={activeTab === 'properties' ? 'selected' : ''} onClick={() => setActiveTab('properties')}><SlidersHorizontal size={14}/> Properties</button><button className={activeTab === 'materials' ? 'selected' : ''} onClick={() => setActiveTab('materials')}><Layers3 size={14}/> Materials</button><button className="close-inspector" onClick={() => setShowInspector(false)}><PanelRightClose size={16}/></button></div>
+          {activeTab === 'properties' ? <>
+            <div className="inspector-section"><div className="section-heading">SCENE HIERARCHY <button onClick={() => addPrimitive('box')}><Plus size={14}/></button></div>
+              <div className="scene-tree"><div className="tree-row root"><ChevronDown size={13}/><Folder size={14}/><span>Scene Collection</span><span className="tree-number">{objectCount}</span></div>
+                {objects.map(obj => <div className={`tree-row child ${selectedId === obj.id ? 'chosen' : ''}`} key={obj.id} onClick={() => setSelectedId(obj.id)}><span className="tree-indent"></span><span className="tree-shape">{obj.kind === 'sphere' ? <CircleShape/> : obj.kind === 'cylinder' ? <Cuboid size={13}/> : <Square size={13}/>}</span><span className="tree-name">{obj.name}</span><button className="visibility-btn" onClick={e => {e.stopPropagation(); setObjects(prev => prev.map(o => o.id === obj.id ? {...o, visible: !o.visible} : o))}}>{obj.visible ? <Eye size={13}/> : <EyeOff size={13}/>}</button></div>)}
+              </div>
+            </div>
+            <div className="inspector-section object-properties"><div className="section-heading">OBJECT PROPERTIES <span className="property-pill">{selected ? 'SELECTED' : 'NONE'}</span></div>
+              {selected ? <>
+                <div className="object-name"><div className="object-thumb"><Box size={19}/></div><div><strong>{selected.name}</strong><small>{selected.kind.toUpperCase()} · Object</small></div></div>
+                <div className="property-group"><div className="property-title">TRANSFORM</div>
+                  <div className="field-label">Position</div><div className="vector-fields">{(['X','Y','Z'] as const).map((axis, i) => <label key={axis}><span>{axis}</span><input type="number" step=".1" value={selected.position[i]} onChange={e => {const p = [...selected.position] as [number,number,number]; p[i] = Number(e.target.value); updateSelected({position:p})}}/></label>)}</div>
+                  <div className="field-label">Scale</div><div className="vector-fields">{(['X','Y','Z'] as const).map((axis, i) => <label key={axis}><span>{axis}</span><input type="number" min=".05" step=".1" value={selected.scale[i]} onChange={e => {const s = [...selected.scale] as [number,number,number]; s[i] = Math.max(.05, Number(e.target.value)); updateSelected({scale:s})}}/></label>)}</div>
+                </div>
+                <div className="property-group"><div className="property-title">DISPLAY</div><label className="toggle-row"><span>Visible in viewport</span><input type="checkbox" checked={selected.visible} onChange={e => updateSelected({visible:e.target.checked})}/><i></i></label></div>
+              </> : <div className="empty-selection">Select an object in the scene to edit its properties.</div>}
+            </div>
+          </> : <div className="materials-content"><div className="section-heading">MATERIAL LIBRARY <button onClick={() => notify('Material library coming soon')}><Plus size={14}/></button></div>
+            {selected ? <><div className="material-preview" style={{background: selected.color}}><span>ACTIVE MATERIAL</span></div><div className="material-name"><strong>{selected.name} · Finish</strong><small>Principled material</small></div><div className="property-group"><div className="property-title">BASE COLOR</div><div className="color-editor"><input type="color" value={selected.color} onChange={e => updateSelected({color:e.target.value})}/><input className="hex-input" value={selected.color.toUpperCase()} onChange={e => /^#[0-9A-Fa-f]{6}$/.test(e.target.value) && updateSelected({color:e.target.value})}/></div><div className="swatches">{['#C99563','#5D6470','#8B9CFB','#6E9C82','#C96E68','#E8E9E6'].map(c => <button key={c} style={{background:c}} onClick={() => updateSelected({color:c})}/>)}</div></div><div className="property-group"><div className="property-title">SURFACE PRESETS</div><div className="preset-grid">{['Oak','Graphite','Sage','Porcelain'].map((p,i) => <button onClick={() => updateSelected({color:['#C99563','#424953','#6E9C82','#E8E9E6'][i]})}><span style={{background:['#C99563','#424953','#6E9C82','#E8E9E6'][i]}}></span>{p}</button>)}</div></div></> : <div className="empty-selection">Select an object to edit its material.</div>}
+          </div>}
+          <div className="inspector-bottom"><div className="blender-status"><span className="blender-mark">B</span><div><strong>Blender Engine</strong><small>Connection not configured</small></div><span className="offline-pill">DEMO</span></div></div>
+        </aside>}
+      </main>
+      {toast && <div className="toast"><Check size={15}/>{toast}</div>}
+    </div>
+  )
+}
+
+function MoveIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M2 12h20M12 2l-3 3m3-3 3 3M22 12l-3-3m3 3-3 3M12 22l-3-3m3 3 3-3M2 12l3-3m-3 3 3 3"/></svg> }
+function CircleShape() { return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="12" cy="12" r="8.5"/></svg> }
