@@ -90,6 +90,8 @@ def revise(
         max_tokens=max_tokens,
     )
     merged = merge_revision(plan, result.value)
-    if result.value.reply:
+    # The planner's reply describes what the user asked for; a revision only fixes geometry QA found
+    # ("the hub is now flush with the gas lift"), which is not news to the user.
+    if result.value.reply and not plan.reply:
         merged = merged.model_copy(update={"reply": result.value.reply})
     return merged, result

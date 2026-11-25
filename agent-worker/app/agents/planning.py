@@ -37,6 +37,8 @@ def build_messages(ctx: AgentContext, task: str, targets: list[str]) -> list[Cha
     lines.extend(selection_lines(ctx))
     if ctx.user_message.strip() and ctx.user_message.strip() not in task:
         lines.append(f'The user\'s own words: "{ctx.user_message[:500]}"')
+    if ctx.reference_description:
+        lines.append(f"<reference_image>{ctx.reference_description}</reference_image>")
     lines.append("Answer with the JSON object only.")
     return [ChatMessage("system", system_prompt()), ChatMessage("user", "\n".join(lines))]
 

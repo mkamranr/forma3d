@@ -11,6 +11,8 @@ from typing import Any, Protocol
 class ChatMessage:
     role: str  # system | user | assistant
     content: str
+    #: Images for vision-capable models, as data URLs (`data:image/jpeg;base64,...`). User turns only.
+    images: list[str] = field(default_factory=list)
 
 
 @dataclass

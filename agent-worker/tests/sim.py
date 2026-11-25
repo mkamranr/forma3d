@@ -14,6 +14,7 @@ from forma3d_shared.schemas.agent import (
     AgentContext,
     AgentRunRecord,
     ChatTurn,
+    ReferenceImage,
     RestoreRequest,
     RestoreResponse,
     StagedCommitResponse,
@@ -175,11 +176,14 @@ class SimBackend:
         self.thread = "thread-1"
 
     # ------------------------------------------------------------------ test helpers
-    def post(self, text: str, selected: str | list[str] | None = None) -> uuid.UUID:
+    def post(
+        self, text: str, selected: str | list[str] | None = None, *, images: list[bytes] | None = None
+    ) -> uuid.UUID:
         jid = uuid.uuid4()
         self.messages.append(("user", text))
         sel = [selected] if isinstance(selected, str) else list(selected or [])
-        self.jobs[jid] = {"status": "queued", "text": text, "selected": sel}
+        refs = {uuid.uuid4(): data for data in images or []}
+        self.jobs[jid] = {"status": "queued", "text": text, "selected": sel, "refs": refs, "description": ""}
         return jid
 
     @property
@@ -217,7 +221,16 @@ class SimBackend:
             thread_id=self.thread,
             head_version_id=head["id"] if head else None,
             version_numbers=sorted((v["number"] for v in self.versions), reverse=True),
+            reference_images=[ReferenceImage(id=i, name="photo.png", media_type="image/png") for i in job["refs"]],
+            reference_description=job["description"],
         )
+
+    def reference_bytes(self, job_id, reference_id) -> bytes:  # noqa: ANN001
+        self.reference_reads = getattr(self, "reference_reads", 0) + 1
+        return self.jobs[job_id]["refs"][reference_id]
+
+    def save_reference_description(self, job_id, description: str) -> None:  # noqa: ANN001
+        self.jobs[job_id]["description"] = description
 
     def submit_plan(self, job_id, body: SubmitPlanRequest) -> SubmitPlanResponse:  # noqa: ANN001
         job = self.jobs[job_id]

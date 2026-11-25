@@ -33,6 +33,22 @@ class ChatTurn(BaseModel):
     content: str
 
 
+class ReferenceImage(BaseModel):
+    """A photo the user attached to the current message (bytes via the internal API, never in state)."""
+
+    id: uuid.UUID
+    name: str = ""
+    media_type: str = "image/jpeg"
+    width: int = 0
+    height: int = 0
+
+
+class ReferenceDescriptionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    description: str = Field(min_length=1, max_length=6000)
+
+
 class AgentContext(BaseModel):
     job_id: uuid.UUID
     project_id: uuid.UUID
@@ -49,6 +65,10 @@ class AgentContext(BaseModel):
     head_version_id: Optional[uuid.UUID] = None
     #: Version numbers that exist (for "restore version 3"), newest first, capped.
     version_numbers: list[int] = Field(default_factory=list)
+    #: Reference photos attached to the current message (image-to-3D).
+    reference_images: list[ReferenceImage] = Field(default_factory=list)
+    #: The Vision Agent's description of them, once made (kept on the message, so resumes skip the VLM).
+    reference_description: str = ""
 
 
 class LLMResponse(BaseModel):

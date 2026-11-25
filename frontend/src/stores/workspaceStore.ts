@@ -71,6 +71,38 @@ type WorkspaceState = {
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 
+/** Viewport preferences survive reloads and project switches (Settings dialog). */
+const PREFS_KEY = 'forma3d.viewport'
+type Prefs = { showGrid: boolean; showAxes: boolean; shading: Shading; projection: Projection }
+const DEFAULT_PREFS: Prefs = { showGrid: true, showAxes: false, shading: 'material', projection: 'perspective' }
+
+function loadPrefs(): Prefs {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(PREFS_KEY) : null
+    const p = raw ? (JSON.parse(raw) as Partial<Prefs>) : {}
+    return {
+      showGrid: typeof p.showGrid === 'boolean' ? p.showGrid : DEFAULT_PREFS.showGrid,
+      showAxes: typeof p.showAxes === 'boolean' ? p.showAxes : DEFAULT_PREFS.showAxes,
+      shading: p.shading === 'solid' || p.shading === 'wireframe' || p.shading === 'material' ? p.shading : DEFAULT_PREFS.shading,
+      projection: p.projection === 'orthographic' ? 'orthographic' : 'perspective',
+    }
+  } catch {
+    return DEFAULT_PREFS
+  }
+}
+
+function savePrefs(p: Prefs) {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(p))
+  } catch {
+    /* private mode / quota: preferences just are not remembered */
+  }
+}
+
+export const resetViewportPrefs = () => {
+  useWorkspaceStore.setState(DEFAULT_PREFS)
+}
+
 const freshState = () => ({
   selectedId: null as string | null,
   selectedIds: [] as string[],
@@ -79,10 +111,7 @@ const freshState = () => ({
   activeTool: 'select' as Tool,
   showChat: true,
   showInspector: true,
-  showGrid: true,
-  showAxes: false,
-  shading: 'material' as Shading,
-  projection: 'perspective' as Projection,
+  ...loadPrefs(),
   viewRequest: { kind: 'fit', nonce: 0 } as ViewRequest,
   versionsOpen: false,
   focusVersionId: null as string | null,
@@ -142,3 +171,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (get().activeJob?.id === id) set({ activeJob: null })
   },
 }))
+
+useWorkspaceStore.subscribe((s, prev) => {
+  if (s.showGrid !== prev.showGrid || s.showAxes !== prev.showAxes || s.shading !== prev.shading || s.projection !== prev.projection)
+    savePrefs({ showGrid: s.showGrid, showAxes: s.showAxes, shading: s.shading, projection: s.projection })
+})

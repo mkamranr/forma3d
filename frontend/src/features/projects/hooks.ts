@@ -15,11 +15,12 @@ export const projectKeys = {
   detail: (id: string) => ['projects', 'detail', id] as const,
 }
 
-export function useProjects(params: ProjectListParams) {
+export function useProjects(params: ProjectListParams, enabled = true) {
   return useQuery({
     queryKey: projectKeys.list(params),
     queryFn: () => listProjects(params),
     placeholderData: keepPreviousData,
+    enabled,
   })
 }
 

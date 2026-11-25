@@ -46,6 +46,8 @@ from forma3d_shared.schemas.job import (
 log = get_logger(__name__)
 
 OUTPUT_JOB_TYPES = ("render", "export")
+#: Uploaded image kinds and their folder in the project directory.
+IMAGE_ASSET_DIRS = {"texture": "textures", "reference": "references"}
 EXPORT_MEDIA = {"glb": "model/gltf-binary", "gltf": "application/zip", "obj": "application/zip", "stl": "model/stl"}
 EXPORT_EXT = {"glb": "glb", "gltf": "gltf.zip", "obj": "obj.zip", "stl": "stl"}
 _EMPTY_DIGEST = hashlib.sha256(b'{"operations":[],"schema_version":"1.0"}').hexdigest()
@@ -359,6 +361,14 @@ class OutputService:
 
     # ------------------------------------------------------------------ textures
     async def upload_texture(self, user_id: uuid.UUID, project_id: uuid.UUID, name: str, data: bytes) -> Asset:
+        return await self.upload_image(user_id, project_id, name, data, "texture")
+
+    async def upload_image(
+        self, user_id: uuid.UUID, project_id: uuid.UUID, name: str, data: bytes, asset_type: str
+    ) -> Asset:
+        """Store a checked PNG/JPEG for the project: `texture` (DSL `image_id`) or `reference`
+        (a photo attached to a chat message for image-to-3D)."""
+        assert asset_type in IMAGE_ASSET_DIRS
         project = await self.project(user_id, project_id)
         if project.status != "active":
             raise ConflictError("Archived projects are read-only", code="project_archived")
@@ -378,7 +388,7 @@ class OutputService:
             raise AppError("Images must be at most 4096 × 4096 pixels", code="image_too_large", status_code=413)
         asset_id = uuid.uuid4()
         ext = "png" if fmt == "png" else "jpg"
-        rel = f"{self.storage.project_dir(project.user_id, project.id)}/textures/{asset_id}.{ext}"
+        rel = f"{self.storage.project_dir(project.user_id, project.id)}/{IMAGE_ASSET_DIRS[asset_type]}/{asset_id}.{ext}"
         path = self.storage.resolve(rel)
 
         def write() -> None:
@@ -388,12 +398,12 @@ class OutputService:
             os.replace(tmp, path)
 
         await asyncio.to_thread(write)
-        safe_name = "".join(c for c in Path(name or "texture").name if c.isprintable())[:120] or "texture"
+        safe_name = "".join(c for c in Path(name or asset_type).name if c.isprintable())[:120] or asset_type
         asset = Asset(
             id=asset_id,
             project_id=project.id,
             version_id=None,
-            asset_type="texture",
+            asset_type=asset_type,
             file_path=rel,
             file_size=len(data),
             checksum=hashlib.sha256(data).hexdigest(),

@@ -7,10 +7,12 @@ type Props = {
   description?: string
   onClose: () => void
   children: ReactNode
+  /** Wider panel for content-heavy dialogs (help, settings). */
+  size?: 'md' | 'lg'
 }
 
 /** Minimal accessible modal dialog (Escape / backdrop to close, initial focus inside). */
-export function Dialog({ open, title, description, onClose, children }: Props) {
+export function Dialog({ open, title, description, onClose, children, size = 'md' }: Props) {
   const panel = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -30,7 +32,7 @@ export function Dialog({ open, title, description, onClose, children }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="dialog-title"
-        className="w-full max-w-md rounded-xl border border-line bg-white p-5 shadow-[0_20px_60px_#151a2333]"
+        className={`w-full ${size === 'lg' ? 'max-w-2xl' : 'max-w-md'} max-h-[90vh] overflow-y-auto rounded-xl border border-line bg-white p-5 shadow-[0_20px_60px_#151a2333]`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-4">

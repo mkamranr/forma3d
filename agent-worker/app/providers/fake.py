@@ -5,6 +5,10 @@ spec scenarios: desk -> black metal legs -> two drawers -> walnut top -> export,
 "make the drawer smaller" (clarification), questions, undo/restore. It reads the scene, task and QA
 issues from the prompt like a real model, so every answer references objects that exist.
 
+Image-to-3D: the Vision Agent's role is answered from the words sent with the photo (no pixels are read):
+"chair" -> an office chair, "cabinet"/"wardrobe" -> a storage cabinet, "blank" -> no object, anything
+else -> a desk. The description then flows through the normal conversation/planning path.
+
 Phase 7 scenarios: storage cabinet (wood texture, doors, handles), office chair (five-star base),
 a cable hole cut into the desk top (boolean), glass/texture looks, lights, exports and renders.
 
@@ -370,6 +374,9 @@ class FakeProvider:
         scene = _json_block(messages, "scene", {"objects": [], "materials": []})
         objects = scene.get("objects", [])
         request = _block(messages, "request").strip()
+        reference = _block(messages, "reference_image").strip()
+        if reference:  # a described photo: build what it shows
+            request = f"{request} {reference.splitlines()[0]}"
         clar = _block(messages, "clarification")
         original = re.search(r"The original request was: (.*)", clar)
         text = f"{original.group(1)} — {request}" if original else request
@@ -707,11 +714,51 @@ class FakeProvider:
             "relations": [],
         }
 
+    # ------------------------------------------------------------------ vision
+    def _vision(self, messages: list[ChatMessage]) -> dict[str, Any]:
+        user = messages[-1] if messages else ChatMessage("user", "")
+        hint = user.content.lower()
+        self.images_seen = len(user.images)
+        if "blank" in hint:
+            return {"is_object": False, "object": "", "summary": "an empty white image", "parts": [], "materials": []}
+        if "chair" in hint:
+            obj, size, parts = "office chair", (0.65, 0.65, 1.1), [("seat", "box"), ("backrest", "box")]
+        elif "cabinet" in hint or "wardrobe" in hint:
+            obj, size, parts = "storage cabinet", (0.9, 0.45, 1.8), [("body", "box"), ("door", "box")]
+        else:
+            obj, size, parts = "modern wooden desk", (1.6, 0.8, 0.75), [("desk top", "box"), ("leg", "box")]
+        return {
+            "is_object": True,
+            "object": obj,
+            "summary": f"A simple {obj}.",
+            "style": "modern",
+            "overall_size_m": dict(zip(("width", "depth", "height"), size, strict=True)),
+            "parts": [
+                {
+                    "name": n,
+                    "shape": sh,
+                    "count": 1,
+                    "size_m": {"width": 0.5, "depth": 0.5, "height": 0.05},
+                    "position": "centred",
+                    "material": "oak",
+                }
+                for n, sh in parts
+            ],
+            "materials": [{"name": "oak", "color": "#C99563", "finish": "satin", "texture": "wood"}],
+            "notes": "",
+            "confidence": "high",
+        }
+
     # ------------------------------------------------------------------ protocol
     def generate_structured(self, messages, schema, *, max_tokens=None) -> Completion:  # noqa: ANN001
         role = _role(messages)
         self.calls.append((role, messages))
-        handler = {"conversation": self._conversation, "planning": self._planning, "revision": self._revision}.get(role)
+        handler = {
+            "conversation": self._conversation,
+            "planning": self._planning,
+            "revision": self._revision,
+            "vision": self._vision,
+        }.get(role)
         answer = handler(messages) if handler else {}
         return Completion(text=json.dumps(answer), model=self.model)
 

@@ -7,13 +7,13 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_session, get_settings_dep, rate_limit
 from app.core.config import Settings
 from app.models import Message, User
-from app.services.conversation_service import ConversationService
+from app.services.conversation_service import MAX_ATTACHMENTS, ConversationService
 from forma3d_shared.schemas.common import ID_PATTERN
 
 router = APIRouter(prefix="/projects/{project_id}/conversation", tags=["conversation"])
@@ -34,7 +34,12 @@ PUBLIC_METADATA = (
     "output_error",
     "quality",
     "restored",
+    "attachments",
+    "reference_description",
 )
+
+#: Text used when a photo is sent without a message.
+IMAGE_ONLY_PROMPT = "Build this object from the attached photo."
 
 
 class MessageOut(BaseModel):
@@ -56,20 +61,27 @@ class ConversationOut(BaseModel):
 class MessageIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    content: str = Field(min_length=1, max_length=4000)
+    content: str = Field(default="", max_length=4000)
     selected_object_id: str | None = Field(default=None, pattern=ID_PATTERN)
     #: Multi-selection (spec 13.3), primary object last.
     selected_object_ids: list[Annotated[str, Field(pattern=ID_PATTERN, max_length=64)]] = Field(
         default_factory=list, max_length=50
     )
+    #: Reference photos uploaded via POST /projects/{id}/references (image-to-3D).
+    attachment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_ATTACHMENTS)
 
     @field_validator("content")
     @classmethod
     def _clean(cls, v: str) -> str:
-        v = v.replace("\x00", "").strip()
-        if not v:
-            raise ValueError("message is empty")
-        return v
+        return v.replace("\x00", "").strip()
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> MessageIn:
+        if not self.content:
+            if not self.attachment_ids:
+                raise ValueError("message is empty")
+            self.content = IMAGE_ONLY_PROMPT
+        return self
 
 
 class PostMessageOut(BaseModel):
@@ -121,6 +133,11 @@ async def post_message(
 ) -> PostMessageOut:
     svc = ConversationService(session, request.app.state.redis, settings)
     message, job = await svc.post_message(
-        user.id, project_id, body.content, body.selected_object_id, body.selected_object_ids
+        user.id,
+        project_id,
+        body.content,
+        body.selected_object_id,
+        body.selected_object_ids,
+        attachment_ids=body.attachment_ids,
     )
     return PostMessageOut(message=message_out(message), job_id=job.id, status=job.status)

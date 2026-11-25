@@ -228,6 +228,10 @@ export type MessageMetadata = {
   restored?: number
   /** Quality Agent verdict for an agent-built version. */
   quality?: { passed: boolean; checks: number; revisions: number; warnings: string[] }
+  /** Reference photos attached to a user message (image-to-3D). */
+  attachments?: { id: string; name: string; width: number; height: number }[]
+  /** What the vision model read from those photos (set on the user message once described). */
+  reference_description?: string
 }
 
 export type ConversationMessage = {

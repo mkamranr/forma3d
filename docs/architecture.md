@@ -260,3 +260,27 @@ Living record of decisions beyond `project-specification.md`. Update as phases l
   offer a re-run.
 - **Tests**: backend `test_hardening.py` (sweeper, reclaim, locks, retention, leader, metrics, secrets);
   blender worker reclaim / keepalive / environment tests.
+
+## Image-to-3D (Vision Agent)
+
+- **Flow**: the chat **+** button (or paste / drop) downscales the photo in the browser (≤1536 px JPEG), uploads
+  it as an `Asset(asset_type="reference")` and sends the message with `attachment_ids` (≤4). The agent job
+  payload lists the `reference_ids`; `AgentContext.reference_images` carries only ids and sizes, never bytes,
+  so checkpoints stay small.
+- **Vision node** (`agents/vision.py`, before `conversation`): fetches each photo through
+  `/internal/v1/agent-jobs/{id}/references/{ref}` (only the job's own attachments), sends them as OpenAI
+  `image_url` content parts to `LLM_MODEL_VISION` (falls back to `LLM_MODEL`), and gets a structured
+  `Description` (object, overall size, parts with shape/count/size/placement/material, materials with hex
+  colour/finish/texture, confidence). It is rendered as compact text, stored on the user message
+  (`reference_description`, shown under the message) and placed in `<reference_image>` for the Conversation
+  and Planning agents. From there it is an ordinary request: DSL validation, Blender, QA and revisions are
+  unchanged, and the image never reaches Blender.
+- **Resume / follow-ups**: a resumed workflow reuses the stored description (no second VLM call); later turns
+  see it in their history, so "make it red" refers to the photographed object.
+- **Failures**: a model without vision support (HTTP 4xx on image input) → `vision_failed` with a hint to set
+  `LLM_MODEL_VISION`; a photo with no buildable object → `no_object_in_image`. The scene is unchanged in both.
+- **Revision replies**: the planner's reply (what was built) is kept when the Revision Agent fixes geometry;
+  its note is only used when the plan had no reply.
+- **Other workspace controls**: the project bar "…" menu (rename/describe, duplicate, export, download .blend,
+  archive, delete), Help (guide and shortcuts), Settings (viewport preferences in `localStorage`) and the
+  "Studio workspace" project switcher.

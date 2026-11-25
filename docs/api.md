@@ -30,7 +30,8 @@
 | POST/GET | `/api/v1/projects/{id}/renders` | `{engine: cycles, quality: draft\|standard\|high, width, height, camera_object_id?, transparent_background}` → 202; `eevee` → 422 `engine_unavailable` unless enabled |
 | GET | `/api/v1/renders/{id}` · `/renders/{id}/image` | PNG |
 | POST/GET | `/api/v1/projects/{id}/textures` · `/textures/{texture_id}` | multipart PNG/JPEG upload (≤10 MB, header-checked); the DSL references it by `image_id` only |
-| POST | `/api/v1/projects/{id}/conversation/messages` | `{content, selected_object_ids?, selected_object_id?}` → 202 `{message, job_id}`; follow `job_id` via SSE; 409 `project_busy` |
+| POST | `/api/v1/projects/{id}/conversation/messages` | `{content, selected_object_ids?, selected_object_id?, attachment_ids?}` → 202 `{message, job_id}`; follow `job_id` via SSE; 409 `project_busy`. `content` may be empty when photos are attached; 422 `attachment_not_found` / `too_many_attachments` (max 4) |
+| POST/GET | `/api/v1/projects/{id}/references` · `/references/{ref_id}` | image-to-3D: multipart PNG/JPEG upload (≤10 MB, ≤4096 px, header-checked) of a photo to attach to a message; the user message's metadata then carries `attachments` and, once read, `reference_description` |
 
 
 All scene edits compile to DSL and return 202 + `job_id`, exactly like `modeling/execute`.
@@ -40,6 +41,7 @@ All scene edits compile to DSL and return 202 + `job_id`, exactly like `modeling
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/internal/v1/jobs/{id}/start` · `complete` | worker callbacks, `X-Internal-Token`, internal network only |
+| GET/POST | `/internal/v1/agent-jobs/{id}/references/{ref_id}` · `reference-description` | Vision agent: bytes of a photo attached to this job only; store its description on the message |
 | GET/POST | `/internal/v1/agent-jobs/{id}/context` · `plan` · `runs` · `restore` · `complete` | agent worker: context, validated plan (per attempt, `defer_commit`), agent run records, undo/restore, reply |
 | GET/POST | `/internal/v1/jobs/{id}/staged` · `commit` · `discard` | agent worker: inspect a staged Blender result, then commit it as a version or discard it |
 

@@ -164,6 +164,8 @@ def test_failed_qa_triggers_revision(sim):  # noqa: ANN001
     top_bottom = objs["desk_top"]["location"][2] - objs["desk_top"]["dimensions"][2] / 2
     assert abs(objs["drawer_left"]["location"][2] + 0.06 - top_bottom) < 0.005
     assert "revision" in agents_run(sim, jid)
+    # the reply describes the request, not the internal geometry fix
+    assert done.reply == "I added two drawers under the desk top, each with a slim handle."
 
 
 def test_revision_is_bounded_and_rolls_back(r):  # noqa: ANN001

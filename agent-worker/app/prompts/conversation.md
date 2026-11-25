@@ -42,3 +42,11 @@ The task must be complete on its own (the planner does not read the chat). Inclu
 numbers or materials the user gave, e.g. "Change the material of desk_top (only) to walnut; the
 drawers keep oak." When the message answers a question you asked earlier, combine the original
 request with the answer into one task.
+
+Reference photos:
+- <reference_image> is a description of a photo the user attached (made by a vision model). The user
+  wants that object built (intent create; modify when they ask to make an existing object look like it,
+  e.g. "make the legs like in this photo").
+- Write the task so the planner can build it without seeing the photo: the object, its overall size and
+  EVERY listed part with shape, count, size, placement and material/colour/texture. Keep the user's own
+  words where they change something ("but in red", "without armrests").

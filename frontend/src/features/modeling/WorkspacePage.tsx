@@ -74,11 +74,12 @@ function Workspace({ projectId }: { projectId: string }) {
 
   return (
     <div className="app-shell">
-      <TopBar version={version?.version_number ?? null} building={activeJob?.message ?? null} onExport={() => setOutputDialog('export')} />
+      <TopBar version={version?.version_number ?? null} building={activeJob?.message ?? null} onExport={() => setOutputDialog('export')} projectId={projectId} />
       <ProjectBar
         project={project.data}
         onOpenVersions={() => setVersionsOpen(true)}
         onRender={version ? () => setOutputDialog('render') : undefined}
+        onExport={() => setOutputDialog('export')}
         history={{
           undoTo: targets.undo?.version_number ?? null,
           redoTo: targets.redo?.version_number ?? null,

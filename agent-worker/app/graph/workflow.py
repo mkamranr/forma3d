@@ -1,6 +1,7 @@
 """LangGraph modeling workflow (spec §7.2).
 
-    load_context -> inspect_scene -> conversation --(question/export)--> answer ------------------> respond
+    load_context -> inspect_scene -> vision* -> conversation --(question/export)--> answer ---------> respond
+    (* only when the message has photos attached: the VLM turns them into a text description)
                                          |   \\--(undo/redo/restore)--> version_manager ---------------> respond
                                          |    \\--(clarify)--> ask -> wait_answer [interrupt] -> load_context
                                          v
@@ -46,6 +47,7 @@ from langgraph.types import interrupt
 from ..agents import conversation as conversation_agent
 from ..agents import planning as planning_agent
 from ..agents import revision as revision_agent
+from ..agents import vision as vision_agent
 from ..agents.inspection import summarize
 from ..agents.llm import AgentFailed, CallRecord
 from ..agents.modeling import Expectations, PlanError, compile_plan
@@ -176,6 +178,55 @@ class Workflow:
             out={"objects": len(inv.objects), "materials": len(inv.materials), "summary": summary},
         )
         return {"inspection": summary}
+
+    def vision(self, state: TurnState, config: RunnableConfig) -> dict:
+        """Image-to-3D: describe the attached photo(s) once; the description joins the context."""
+        ctx = self.ctx(state)
+        if not ctx.reference_images or ctx.reference_description:
+            return {}
+        job = _job(config)
+        self.check_cancel(job)
+        self.emit(job, "agent.started", "vision", "Studying your photo", {"agent": "vision"})
+        try:
+            images = [
+                vision_agent.data_url(self.d.backend.reference_bytes(job, ref.id), ref.media_type)
+                for ref in ctx.reference_images
+            ]
+        except BackendRejected as exc:
+            return {"outcome": _fail_outcome(f"I couldn't open the attached image: {exc}", "attachment_unavailable")}
+        provider = self.d.providers.get("vision") or self.d.providers["conversation"]
+        try:
+            res = vision_agent.describe(
+                provider, images, ctx.user_message, max_retries=self.d.max_retries, max_tokens=self.d.llm_max_tokens
+            )
+        except AgentFailed as exc:
+            self.record_calls(job, exc.calls)
+            reply = (
+                "I couldn't read the photo: the language model rejected the image. The configured model may not "
+                "support images (set LLM_MODEL_VISION to a vision model)."
+                if exc.code == "llm_unavailable" and "rejected" in str(exc)
+                else f"I couldn't read the photo ({exc}). Try a clearer picture of the object, or describe it."
+            )
+            return {"outcome": _fail_outcome(reply, "vision_failed")}
+        self.record_calls(job, res.calls)
+        desc = res.value
+        if not desc.is_object:
+            reply = (
+                f"I couldn't find an object to build in that photo ({desc.summary or 'nothing recognisable'}). "
+                "Try a photo where the object fills most of the frame."
+            )
+            return {"outcome": _fail_outcome(reply, "no_object_in_image")}
+        text = desc.as_text()
+        self.d.backend.save_reference_description(job, text)
+        log("agent.vision", job_id=str(job), object=desc.object, parts=len(desc.parts), confidence=desc.confidence)
+        self.emit(
+            job,
+            "agent.progress",
+            "vision",
+            f"Recognised: {desc.object or 'an object'} ({len(desc.parts)} part types)",
+            {"object": desc.object, "parts": len(desc.parts)},
+        )
+        return {"ctx": {**state["ctx"], "reference_description": text}}
 
     def conversation(self, state: TurnState, config: RunnableConfig) -> dict:
         job = _job(config)
@@ -600,6 +651,7 @@ class Workflow:
         for name in (
             "load_context",
             "inspect_scene",
+            "vision",
             "conversation",
             "answer",
             "version_manager",
@@ -617,7 +669,8 @@ class Workflow:
             g.add_node(name, getattr(self, name))
         g.add_edge(START, "load_context")
         g.add_edge("load_context", "inspect_scene")
-        g.add_edge("inspect_scene", "conversation")
+        g.add_edge("inspect_scene", "vision")
+        g.add_conditional_edges("vision", self.after_step, {"next": "conversation", "respond": "respond"})
         g.add_conditional_edges(
             "conversation", self.after_conversation, ["answer", "version_manager", "ask", "planning", "respond"]
         )

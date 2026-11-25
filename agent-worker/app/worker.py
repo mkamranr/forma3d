@@ -180,7 +180,7 @@ class Worker:
             "worker.started",
             worker_id=self.cfg.worker_id,
             provider=self.cfg.llm_provider,
-            models={a: self.cfg.model_for(a) for a in ("conversation", "planning", "revision")},
+            models={a: self.cfg.model_for(a) for a in ("conversation", "planning", "revision", "vision")},
             checkpoint=self.cfg.checkpoint_url.split("://")[0],
         )
         last_reclaim = 0.0

@@ -300,3 +300,46 @@ async def texture_image(
     return _file(
         settings, asset, "image/png" if fmt == "png" else "image/jpeg", f"texture.{'png' if fmt == 'png' else 'jpg'}"
     )
+
+
+# --------------------------------------------------------------------------- reference images
+def _reference_out(project_id: uuid.UUID, a: Asset) -> TextureOut:
+    out = _texture_out(project_id, a)
+    out.url = f"/api/v1/projects/{project_id}/references/{a.id}"
+    return out
+
+
+@router.post("/projects/{project_id}/references", response_model=TextureOut, status_code=201, dependencies=[_limit])
+async def upload_reference(
+    project_id: uuid.UUID,
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings_dep),
+) -> TextureOut:
+    """A photo of an object to attach to a chat message ("build this"). PNG/JPEG, header-checked."""
+    svc = _svc(request, session, settings)
+    data = await file.read(svc.limits.max_texture_upload_bytes + 1)
+    asset = await svc.upload_image(user.id, project_id, file.filename or "reference", data, "reference")
+    return _reference_out(project_id, asset)
+
+
+@router.get("/projects/{project_id}/references/{reference_id}")
+async def reference_image(
+    project_id: uuid.UUID,
+    reference_id: uuid.UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings_dep),
+) -> FileResponse:
+    svc = _svc(request, session, settings)
+    project = await svc.project(user.id, project_id)
+    asset = await session.get(Asset, reference_id)
+    if asset is None or asset.project_id != project.id or asset.asset_type != "reference":
+        raise NotFoundError("Image not found")
+    fmt = (asset.metadata_ or {}).get("format", "png")
+    return _file(
+        settings, asset, "image/png" if fmt == "png" else "image/jpeg", f"reference.{'png' if fmt == 'png' else 'jpg'}"
+    )

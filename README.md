@@ -36,6 +36,8 @@
 
 - **Talk to it like a designer.** "Create a modern wooden desk", "make the legs black metal", "add two drawers".
   Follow-ups understand the scene and the current selection.
+- **Or show it a photo.** Attach a picture of a chair, lamp or cabinet. A vision model reads its parts,
+  proportions and materials, and forma3D builds it as an editable 3D model.
 - **Real geometry, not a picture.** Every model is a Blender scene you can download as `.blend`, GLB, glTF, OBJ
   or STL, or render with Cycles.
 - **Safe by design.** The LLM never writes code. It produces a plan in a validated modeling language (DSL),
@@ -75,11 +77,16 @@
   (for example "which drawer?").
 - Selection-aware chat, so "make *this* taller" acts on whatever is selected in the viewport or tree.
 - A multi-agent workflow (LangGraph):
-  1. **Conversation** classifies the request.
-  2. **Planning** writes the DSL.
-  3. **Inspection** reads the scene.
-  4. **QA** checks geometry, relations and untouched objects.
-  5. **Revision** fixes failed checks.
+  1. **Vision** (only when photos are attached) describes them.
+  2. **Conversation** classifies the request.
+  3. **Planning** writes the DSL.
+  4. **Inspection** reads the scene.
+  5. **QA** checks geometry, relations and untouched objects.
+  6. **Revision** fixes failed checks.
+- **Image to 3D**: attach up to 4 photos with **+**, or paste or drop them into the chat.
+  - The Vision agent turns them into a structured description: parts, counts, sizes, placement, colours and textures.
+  - The planner builds from that description. Add words to steer it ("like this, but in walnut").
+  - "What I saw in the photo" under the message shows what was understood.
 - Live progress over server-sent events. Every reply shows its version and QA result ("Saved as v4 ·
   QA passed · 12 checks").
 - Interrupted workflows resume from PostgreSQL checkpoints after a worker restart.
@@ -313,6 +320,7 @@ All settings live in `.env`. See [.env.example](.env.example) for the documented
 | `LLM_PROVIDER` | `vllm` | `vllm`, `openai_compatible`, or `fake` (offline demo planner) |
 | `LLM_BASE_URL` / `LLM_MODEL` | — | Endpoint and served model name |
 | `LLM_MODEL_PLANNING` / `_CONVERSATION` / `_REVISION` | `LLM_MODEL` | Optional per-agent models |
+| `LLM_MODEL_VISION` | `LLM_MODEL` | Vision-capable model for image-to-3D (Qwen-VL, Llama 3.2 Vision, …) |
 | `LLM_STRUCTURED_OUTPUT` | `json_schema` | `json_schema`, `guided_json`, `json_object` or `none` |
 | `LLM_THINKING` | `auto` | `on`/`off` for reasoning models (`chat_template_kwargs.enable_thinking`) |
 | `AGENT_MAX_RETRIES` / `AGENT_MAX_REVISIONS` | `2` / `2` | Plan repair attempts / QA revision loops |
@@ -404,6 +412,8 @@ docs/            Architecture, DSL, API, deployment and operations guides
 - Booleans, join, remesh and decimate are destructive (undo restores the previous version).
 - Eevee rendering needs a GPU and is off by default; Cycles always works.
 - Duplicating a project copies its metadata, not its versions.
+- Image-to-3D approximates the photo with simple shapes, booleans and modifiers. It does not reconstruct a
+  mesh, so organic forms are simplified. Each photo adds 30–100 s of vision-model time.
 - The offline `fake` provider only understands the demo scenarios (desk, cabinet, office chair and their
   edits).
 - The Linux container images and the Postgres checkpointer have not yet been run on the target Docker host.

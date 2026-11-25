@@ -1,4 +1,5 @@
-import { Box, Camera, History, MoreHorizontal, Redo2, Undo2 } from 'lucide-react'
+import { Box, Camera, History, Redo2, Undo2 } from 'lucide-react'
+import { ProjectMenu } from './ProjectMenu'
 import type { Project } from '../../types/api'
 import { relativeTime } from '../../utils/format'
 
@@ -10,9 +11,11 @@ type Props = {
   /** Opens the render dialog; absent while there is nothing to render. */
   onRender?: () => void
   history?: HistoryControl
+  /** Opens the export dialog (from the project menu). */
+  onExport?: () => void
 }
 
-export function ProjectBar({ project, onOpenVersions, onRender, history }: Props) {
+export function ProjectBar({ project, onOpenVersions, onRender, history, onExport }: Props) {
   return (
     <div className="projectbar">
       <div className="project-title">
@@ -54,7 +57,7 @@ export function ProjectBar({ project, onOpenVersions, onRender, history }: Props
         <button className="soft-btn" onClick={onOpenVersions} title="Every change is saved automatically as a version">
           <History size={14} /> Versions{project ? ` · ${project.version_count}` : ''}
         </button>
-        <button className="icon-btn"><MoreHorizontal size={18} /></button>
+        <ProjectMenu project={project} onExport={onExport ?? (() => undefined)} />
       </div>
     </div>
   )

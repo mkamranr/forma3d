@@ -7,6 +7,7 @@ import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,11 +19,12 @@ from app.repositories.modeling import ModelingRepository
 from app.schemas.modeling import JobOut
 from app.services.conversation_service import ConversationService
 from app.services.job_service import JobService, job_out
-from app.services.storage import ProjectStorage
+from app.services.storage import ProjectStorage, StoragePathError
 from forma3d_shared.schemas.agent import (
     AgentCompleteRequest,
     AgentContext,
     AgentRunRecord,
+    ReferenceDescriptionIn,
     RestoreRequest,
     RestoreResponse,
     StagedCommitResponse,
@@ -199,4 +201,36 @@ async def agent_complete(
     settings: Settings = Depends(get_settings_dep),
 ) -> Response:
     await _conv(request, session, settings).complete(job_id, body)
+    return Response(status_code=204)
+
+
+@router.get("/agent-jobs/{job_id}/references/{reference_id}")
+async def agent_reference(
+    job_id: uuid.UUID,
+    reference_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings_dep),
+) -> FileResponse:
+    """Bytes of a photo attached to this agent job's message (for the Vision Agent)."""
+    asset = await _conv(request, session, settings).reference_file(job_id, reference_id)
+    try:
+        path = ProjectStorage(settings.data_root).resolve(asset.file_path)
+    except StoragePathError as exc:
+        raise NotFoundError("Image not found") from exc
+    if not path.is_file():
+        raise NotFoundError("Image is missing")
+    fmt = (asset.metadata_ or {}).get("format", "png")
+    return FileResponse(path, media_type="image/png" if fmt == "png" else "image/jpeg")
+
+
+@router.post("/agent-jobs/{job_id}/reference-description", status_code=204)
+async def agent_reference_description(
+    job_id: uuid.UUID,
+    body: ReferenceDescriptionIn,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings_dep),
+) -> Response:
+    await _conv(request, session, settings).save_reference_description(job_id, body.description)
     return Response(status_code=204)

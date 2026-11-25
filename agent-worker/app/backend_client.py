@@ -73,6 +73,29 @@ class BackendClient:
     def context(self, job_id: uuid.UUID) -> AgentContext:
         return AgentContext.model_validate(self._call("GET", f"/internal/v1/agent-jobs/{job_id}/context"))
 
+    def reference_bytes(self, job_id: uuid.UUID, reference_id: uuid.UUID) -> bytes:
+        """A photo attached to the job's message (raw bytes; not JSON)."""
+        delay = 1.0
+        last: Exception | None = None
+        for _ in range(self.retries):
+            try:
+                res = self.http.get(f"/internal/v1/agent-jobs/{job_id}/references/{reference_id}", headers=self.headers)
+                if res.status_code >= 500:
+                    raise BackendUnavailable(f"backend returned {res.status_code}")
+                if res.status_code >= 400:
+                    raise BackendRejected(res.status_code, {"detail": "The attached image is not available"})
+                return res.content
+            except (httpx.TransportError, BackendUnavailable) as exc:
+                last = exc
+                time.sleep(delay)
+                delay = min(delay * 2, 15)
+        raise BackendUnavailable(str(last))
+
+    def save_reference_description(self, job_id: uuid.UUID, description: str) -> None:
+        self._call(
+            "POST", f"/internal/v1/agent-jobs/{job_id}/reference-description", {"description": description[:6000]}
+        )
+
     def submit_plan(self, job_id: uuid.UUID, body: SubmitPlanRequest) -> SubmitPlanResponse:
         return SubmitPlanResponse.model_validate(
             self._call("POST", f"/internal/v1/agent-jobs/{job_id}/plan", body.model_dump(mode="json"))

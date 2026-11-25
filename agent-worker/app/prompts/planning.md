@@ -60,6 +60,12 @@ attached_to (touching, e.g. a handle on a drawer front), inside, beside.
 - Listing an EXISTING material id in "materials" changes it for EVERY object that uses it ("used_by").
   To change only some objects, create a NEW material and set it on just those parts (modify ... material).
 
+## Reference photos
+- <reference_image> describes a photo of the object to build (from a vision model). Follow it closely:
+  same parts, counts, proportions and overall size, materials and colours (hex). Sizes in it are estimates:
+  fix them where they contradict each other so every part touches what supports it (no gaps, no floating
+  parts). Approximate curved or organic parts with the closest shapes; the user's words win over the photo.
+
 ## Minimal changes
 - Touch only what the task asks for. Never recreate, move or recolour unrelated objects.
 - Use the exact ids from the scene. New ids must not clash with existing ones.

@@ -24,6 +24,15 @@ from .base import ChatMessage, Completion, LLMError
 MAX_RESPONSE_CHARS = 200_000
 
 
+def _message(m: ChatMessage) -> dict[str, Any]:
+    """Plain text, or OpenAI content parts (text + image_url) when the turn carries images."""
+    if not m.images:
+        return {"role": m.role, "content": m.content}
+    parts: list[dict[str, Any]] = [{"type": "image_url", "image_url": {"url": url}} for url in m.images]
+    parts.append({"type": "text", "text": m.content})
+    return {"role": m.role, "content": parts}
+
+
 class OpenAICompatibleProvider:
     name = "openai_compatible"
 
@@ -95,7 +104,7 @@ class OpenAICompatibleProvider:
     def _body(self, messages: list[ChatMessage], max_tokens: int | None) -> dict[str, Any]:
         body: dict[str, Any] = {
             "model": self.model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [_message(m) for m in messages],
             "temperature": self.temperature,
             "max_tokens": max_tokens or self.max_tokens,
         }

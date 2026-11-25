@@ -11,7 +11,7 @@ from .providers.base import LLMProvider
 
 #: LLM-backed agents. Each may use its own model (LLM_MODEL_<AGENT>), falling back to LLM_MODEL;
 #: they share one provider adapter and endpoint (spec §7.4, §24.3).
-LLM_AGENTS = ("conversation", "planning", "revision")
+LLM_AGENTS = ("conversation", "planning", "revision", "vision")
 
 
 @dataclass

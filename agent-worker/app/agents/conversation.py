@@ -91,6 +91,8 @@ def build_messages(ctx: AgentContext, clarification: dict[str, str] | None) -> l
             + "\nThe user's message below answers it.</clarification>"
         )
     parts.append(f"<request>{ctx.user_message}</request>")
+    if ctx.reference_description:
+        parts.append(f"<reference_image>{ctx.reference_description}</reference_image>")
     parts.append("Answer with the JSON object only.")
     msgs.append(ChatMessage("user", "\n".join(parts)))
     return msgs

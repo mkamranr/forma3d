@@ -101,18 +101,18 @@ export function useConversation(projectId: string) {
 export function useSendMessage(projectId: string) {
   const qc = useQueryClient()
   return useCallback(
-    async (text: string, selectedObjectIds: string[]): Promise<boolean> => {
+    async (text: string, selectedObjectIds: string[], attachmentIds: string[] = []): Promise<boolean> => {
       const { activeJob, startJob, notify } = useWorkspaceStore.getState()
       if (activeJob) {
         notify('Still working on the previous request — try again in a moment.')
         return false
       }
       try {
-        const res = await postMessage(projectId, text, selectedObjectIds)
+        const res = await postMessage(projectId, text, selectedObjectIds, attachmentIds)
         qc.setQueryData(sceneKeys.conversation(projectId), (old: Conversation | undefined) =>
           old ? { ...old, messages: [...old.messages, res.message] } : old,
         )
-        startJob(res.job_id, text, 'agent')
+        startJob(res.job_id, res.message.content, 'agent')
         return true
       } catch (err) {
         notify(errorMessage(err))

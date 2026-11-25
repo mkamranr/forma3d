@@ -18,7 +18,7 @@ from app.core.config import Settings
 from app.core.errors import AppError, ConflictError, NotFoundError, ServiceUnavailableError
 from app.core.logging import get_logger
 from app.core.time import utcnow
-from app.models import AgentRun, Conversation, Job, Message, ModelingPlan, OperationBatch, Project, SceneVersion
+from app.models import AgentRun, Asset, Conversation, Job, Message, ModelingPlan, OperationBatch, Project, SceneVersion
 from app.repositories.modeling import ModelingRepository
 from app.repositories.projects import ProjectRepository
 from app.services import history_service
@@ -35,6 +35,7 @@ from forma3d_shared.schemas.agent import (
     AgentJobSpec,
     AgentRunRecord,
     ChatTurn,
+    ReferenceImage,
     RestoreRequest,
     SubmitPlanRequest,
 )
@@ -45,9 +46,20 @@ from forma3d_shared.schemas.scene_object import SceneInventory
 log = get_logger(__name__)
 
 HISTORY_TURNS = 12
+#: Reference photos per message (each becomes ~1-2k vision tokens).
+MAX_ATTACHMENTS = 4
 ACTIVE = ("queued", "running")
 #: Jobs that change the scene. Renders and exports only read a version and never block editing.
 SCENE_JOB_TYPES = ("agent", "modeling")
+
+
+def _turn_text(m: Message) -> str:
+    """A history turn for the agents; a user turn with a photo carries the Vision Agent's description."""
+    text = m.content[:2000]
+    described = (m.metadata_ or {}).get("reference_description") if m.role == "user" else None
+    if described:
+        text += f"\n[Attached photo, as read by the vision model: {described[:1500]}]"
+    return text
 
 
 class ConversationService:
@@ -113,6 +125,8 @@ class ConversationService:
         content: str,
         selected_object_id: str | None,
         selected_object_ids: list[str] | None = None,
+        *,
+        attachment_ids: list[uuid.UUID] | None = None,
     ) -> tuple[Message, Job]:
         # Full selection, primary (most recently selected) object last.
         selection = [s for s in dict.fromkeys(selected_object_ids or []) if s != selected_object_id]
@@ -120,7 +134,9 @@ class ConversationService:
             selection.append(selected_object_id)
         selected_object_id = selection[-1] if selection else None
         async with AdmissionGate(self.redis, project_id):  # atomic "nothing running" -> create the turn
-            message, job, spec = await self._admit(user_id, project_id, content, selected_object_id, selection)
+            message, job, spec = await self._admit(
+                user_id, project_id, content, selected_object_id, selection, list(dict.fromkeys(attachment_ids or []))
+            )
         try:
             await self.redis.xadd(AGENT_JOB_STREAM, {"job": spec.model_dump_json()})
         except Exception as exc:
@@ -137,6 +153,7 @@ class ConversationService:
         content: str,
         selected_object_id: str | None,
         selection: list[str],
+        attachment_ids: list[uuid.UUID] | None = None,
     ) -> tuple[Message, Job, AgentJobSpec]:
         project = await self._project(user_id, project_id)
         if project.status != "active":
@@ -149,14 +166,28 @@ class ConversationService:
         if active.first() is not None:
             raise ConflictError("Another change to this project is still being built", code="project_busy")
 
+        references = await self._references(project.id, attachment_ids or [])
         conv = await self.get_or_create(user_id, project_id)
+        metadata: dict[str, Any] = (
+            {"selected_object_id": selected_object_id, "selected_object_ids": selection} if selection else {}
+        )
+        if references:
+            metadata["attachments"] = [
+                {
+                    "id": str(a.id),
+                    "name": (a.metadata_ or {}).get("name", "photo"),
+                    "width": (a.metadata_ or {}).get("width", 0),
+                    "height": (a.metadata_ or {}).get("height", 0),
+                }
+                for a in references
+            ]
         message = Message(
             conversation_id=conv.id,
             role="user",
             content=content,
             status="complete",
             created_at=await self._next_timestamp(conv.id),
-            metadata_={"selected_object_id": selected_object_id, "selected_object_ids": selection} if selection else {},
+            metadata_=metadata,
         )
         self.session.add(message)
         await self.session.flush()
@@ -171,6 +202,7 @@ class ConversationService:
                 "user_id": str(user_id),
                 "selected_object_id": selected_object_id,
                 "selected_object_ids": selection,
+                "reference_ids": [str(a.id) for a in references],
             },
         )
         self.session.add(job)
@@ -181,6 +213,24 @@ class ConversationService:
 
         spec = AgentJobSpec(job_id=job.id, project_id=project.id, conversation_id=conv.id, message_id=message.id)
         return message, job, spec
+
+    async def _references(self, project_id: uuid.UUID, ids: list[uuid.UUID]) -> list[Asset]:
+        """The project's uploaded reference photos, in the order given; unknown ids are a 422."""
+        if not ids:
+            return []
+        if len(ids) > MAX_ATTACHMENTS:
+            raise AppError(
+                f"At most {MAX_ATTACHMENTS} images per message", code="too_many_attachments", status_code=422
+            )
+        rows = await self.session.execute(
+            select(Asset).where(Asset.project_id == project_id, Asset.asset_type == "reference", Asset.id.in_(ids))
+        )
+        found = {a.id: a for a in rows.scalars()}
+        if len(found) != len(ids):
+            raise AppError(
+                "An attached image was not found; upload it again", code="attachment_not_found", status_code=422
+            )
+        return [found[i] for i in ids]
 
     # ------------------------------------------------------------------ worker-facing
     async def _agent_job(self, job_id: uuid.UUID, *, for_update: bool = False) -> Job:
@@ -208,7 +258,10 @@ class ConversationService:
                 .limit(HISTORY_TURNS)
             )
         ).scalars()
-        history = [ChatTurn(role=m.role, content=m.content[:2000]) for m in reversed(list(prior))]  # type: ignore[arg-type]
+        history = [
+            ChatTurn(role=m.role, content=_turn_text(m))  # type: ignore[arg-type]
+            for m in reversed(list(prior))
+        ]
         conversation = await self.session.get(Conversation, user_message.conversation_id)
         numbers = (
             await self.session.execute(
@@ -233,7 +286,40 @@ class ConversationService:
             thread_id=conversation.langgraph_thread_id if conversation else "",
             head_version_id=head.id if head else None,
             version_numbers=list(numbers),
+            reference_images=[
+                ReferenceImage(
+                    id=a.id,
+                    name=(a.metadata_ or {}).get("name", ""),
+                    media_type="image/png" if (a.metadata_ or {}).get("format") == "png" else "image/jpeg",
+                    width=(a.metadata_ or {}).get("width", 0),
+                    height=(a.metadata_ or {}).get("height", 0),
+                )
+                for a in await self._references(
+                    project.id, [uuid.UUID(i) for i in job.payload.get("reference_ids") or []]
+                )
+            ],
+            reference_description=(user_message.metadata_ or {}).get("reference_description", ""),
         )
+
+    async def reference_file(self, job_id: uuid.UUID, reference_id: uuid.UUID) -> Asset:
+        """A reference photo of this agent job (the worker may read only what the user attached)."""
+        job = await self._agent_job(job_id)
+        if str(reference_id) not in (job.payload.get("reference_ids") or []):
+            raise NotFoundError("Image not found")
+        asset = await self.session.get(Asset, reference_id)
+        if asset is None or asset.project_id != job.project_id or asset.asset_type != "reference":
+            raise NotFoundError("Image not found")
+        return asset
+
+    async def save_reference_description(self, job_id: uuid.UUID, description: str) -> None:
+        """Keep the Vision Agent's reading of the photo on the user's message: shown in the chat, reused
+        as context by later turns and by a resumed workflow (no second VLM call)."""
+        job = await self._agent_job(job_id)
+        message = await self.session.get(Message, uuid.UUID(job.payload["message_id"]))
+        if message is None:
+            raise NotFoundError("Message not found")
+        message.metadata_ = {**(message.metadata_ or {}), "reference_description": description[:6000]}
+        await self.session.commit()
 
     async def submit_plan(self, job_id: uuid.UUID, body: SubmitPlanRequest, storage: ProjectStorage):
         job = await self._agent_job(job_id)

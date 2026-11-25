@@ -314,3 +314,25 @@
   font-size:8px;
   margin-top:8px;
 }
+
+/* ---- reference photos (image-to-3D) ---- */
+.attach-btn:hover:not(:disabled) { color:#695bd9; }
+.attach-btn:disabled { opacity:.4; cursor:default; }
+.composer.dragging { border-color:#695bd9; background:#f6f5ff; box-shadow:0 0 0 3px #695bd91f; }
+.composer-attachments { display:flex; gap:6px; padding:8px 9px 0; flex-wrap:wrap; }
+.composer-thumb { position:relative; width:46px; height:46px; border-radius:7px; overflow:hidden; border:1px solid #e2e1ef; background:#f4f4f8; }
+.composer-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+.composer-thumb.error { border-color:#e0a4a0; }
+.composer-thumb .thumb-overlay { position:absolute; inset:0; display:grid; place-items:center; background:#ffffffb3; color:#695bd9; font-weight:800; }
+.composer-thumb.error .thumb-overlay { color:#b3261e; }
+.composer-thumb button { position:absolute; top:2px; right:2px; width:15px; height:15px; border:0; border-radius:50%; background:#262c3dcc; color:#fff; display:grid; place-items:center; padding:0; cursor:pointer; }
+.suggestions button svg { vertical-align:-2px; margin-right:2px; }
+.suggestions button:disabled { opacity:.5; cursor:default; }
+.message.user .message-attachments { display:flex; gap:6px; justify-content:flex-end; flex-wrap:wrap; margin-bottom:5px; }
+.message-attachments { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:5px; }
+.attachment-thumb { width:88px; height:88px; border-radius:9px; overflow:hidden; border:1px solid #e2e1ef; background:#f4f4f8; display:grid; place-items:center; color:#9da3b0; }
+.attachment-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+.vision-note { margin-top:5px; font-size:10px; color:#6b7180; max-width:100%; }
+.vision-note summary { cursor:pointer; display:inline-flex; align-items:center; gap:4px; color:#7167c3; list-style:none; }
+.vision-note summary::-webkit-details-marker { display:none; }
+.vision-note pre { white-space:pre-wrap; font-family:inherit; margin:5px 0 0; padding:8px 9px; background:#f6f6fa; border:1px solid #ebebf3; border-radius:8px; line-height:1.45; }
