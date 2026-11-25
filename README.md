@@ -1,207 +1,397 @@
-# Forma3D — Conversational AI 3D Studio
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img src="docs/assets/logo.svg" alt="forma3D" width="320">
+  </picture>
+</p>
 
-Describe an object in natural language; an LLM plans it, a validated modeling DSL drives
-Blender (headless, in Docker), and the browser shows the GLB in a Three.js viewport. Refine it
-through conversation with full version history.
+<h3 align="center">Conversational AI 3D studio</h3>
 
-Full specification: [`project-specification.md`](project-specification.md).
+<p align="center">
+  Describe an object in plain language. AI agents plan it, Blender builds it, and you refine it in the browser:<br>
+  by chatting, or by editing it directly. Every change becomes a version you can compare, undo or branch from.
+</p>
 
-## Status
+<p align="center">
+  <img alt="React" src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-Python%203.12-009688?logo=fastapi&logoColor=white">
+  <img alt="LangGraph" src="https://img.shields.io/badge/LangGraph-multi--agent-6658dc">
+  <img alt="Blender" src="https://img.shields.io/badge/Blender-4.5%20LTS-E87D0D?logo=blender&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white">
+  <img alt="Self-hosted LLM" src="https://img.shields.io/badge/LLM-vLLM%20%2F%20OpenAI--compatible-412991">
+</p>
 
-| Phase | Scope | State |
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#deployment-with-docker">Deployment</a> ·
+  <a href="#operations">Operations</a> ·
+  <a href="#development">Development</a>
+</p>
+
+---
+
+## Why forma3D
+
+- **Talk to it like a designer.** "Create a modern wooden desk", "make the legs black metal", "add two drawers".
+  Follow-ups understand the scene and the current selection.
+- **Real geometry, not a picture.** Every model is a Blender scene you can download as `.blend`, GLB, glTF, OBJ
+  or STL, or render with Cycles.
+- **Safe by design.** The LLM never writes code. It produces a plan in a validated modeling language (DSL),
+  and only allowlisted operations reach a sandboxed, headless Blender.
+- **Self-hosted and private.** It runs on your own Docker host with your own LLM (vLLM or any OpenAI-compatible
+  server). It also works fully offline or air-gapped.
+
+## Screenshots
+
+<p align="center">
+  <img src="screenshots/2.JPG" alt="Workspace: AI assistant, live 3D viewport, scene hierarchy and version history" width="100%">
+  <br><sub><b>Workspace.</b> Chat with the assistant, inspect the live Blender scene, edit objects and step through versions.</sub>
+</p>
+
+<p align="center">
+  <img src="screenshots/1.JPG" alt="Project dashboard with model thumbnails" width="80%">
+  <br><sub><b>Dashboard.</b> Your projects with live thumbnails, search, sort and archive.</sub>
+</p>
+
+## Features
+
+### Conversational modeling
+- Natural-language creation and editing, with clarifying questions when a request is ambiguous
+  (for example "which drawer?").
+- Selection-aware chat, so "make *this* taller" acts on whatever is selected in the viewport or tree.
+- A multi-agent workflow (LangGraph):
+  1. **Conversation** classifies the request.
+  2. **Planning** writes the DSL.
+  3. **Inspection** reads the scene.
+  4. **QA** checks geometry, relations and untouched objects.
+  5. **Revision** fixes failed checks.
+- Live progress over server-sent events. Every reply shows its version and QA result ("Saved as v4 ·
+  QA passed · 12 checks").
+- Interrupted workflows resume from PostgreSQL checkpoints after a worker restart.
+
+### 3D workspace
+- Three.js / React Three Fiber viewport:
+  - Orbit, pan and zoom, six camera presets, and perspective/orthographic views.
+  - Solid, wireframe and material shading, plus grid and axes.
+  - Fit-to-view and fullscreen.
+- Click-to-select that stays in sync with the scene hierarchy. Multi-select is supported.
+- Transform gizmo (move, rotate, scale) with exact numeric fields.
+- Panels for properties, materials, lights and cameras.
+- Add primitives, lights and cameras. Rename, hide and delete objects, and re-parent them.
+
+### Modeling engine (51 DSL operations)
+- Primitives, curves and custom meshes.
+- Extrude and inset; booleans (union, difference, intersect).
+- Modifiers: bevel, solidify, subdivide, mirror, array, remesh and decimate.
+- Join and separate, origin and transform application, collections and parenting.
+- PBR materials with glass (transmission), glow (emission) and procedural textures:
+  wood, marble, brick, fabric, concrete, brushed metal and more. You can also upload your own images.
+- Every operation is schema-checked and semantically validated (targets, limits, dependencies) before
+  Blender runs.
+
+### Versions and history
+- Immutable versions with thumbnails, the message that created each one, and an inventory of the scene.
+- Undo and redo, restore any version, and branch from the past.
+- Compare two versions: objects and materials added, removed or changed, field by field.
+
+### Output
+- Export to **GLB, glTF, OBJ or STL**, in metres, centimetres or millimetres, optionally with hidden
+  objects. Textures are included.
+- **Cycles renders** at draft, standard or high quality, through any scene camera, with an optional
+  transparent background. A GPU is used when one is available.
+- Renders and exports can be started from chat ("render it", "export as STL").
+
+### Accounts and projects
+- Email and password accounts (argon2). Short-lived JWTs with rotating, reuse-detected refresh cookies.
+- Projects can be created, renamed, duplicated, archived and deleted, with search and sorting.
+  Each user's data is isolated.
+
+### Production-ready operations
+- Hardened containers:
+  - Read-only root filesystems, no capabilities, non-root users.
+  - Resource limits and isolated networks.
+- Job recovery: crashed workers' jobs are re-run, stuck jobs time out cleanly and stale locks are released.
+- Horizontal scaling of Blender and agent workers.
+- Prometheus `/metrics`, a readiness endpoint and ready-made alert rules.
+- Backup and restore scripts, retention policies, file-based secrets and an optional NVIDIA GPU profile.
+- An offline bundle with image digests for air-gapped installs.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    user([Browser]) -->|HTTPS| nginx
+
+    subgraph edge [edge network]
+        nginx["frontend<br/>nginx + React SPA"]
+    end
+
+    subgraph app [internal networks]
+        backend["backend<br/>FastAPI"]
+        agent["agent-worker<br/>LangGraph agents"]
+        blender["blender-worker ×N<br/>headless Blender 4.5"]
+        pg[("PostgreSQL 17<br/>app data + checkpoints")]
+        redis[("Redis 7<br/>streams · events · locks")]
+        vol[["project_data volume<br/>versions · renders · exports"]]
+    end
+
+    llm{{"LLM server<br/>vLLM / OpenAI-compatible"}}
+
+    nginx -->|/api, SSE| backend
+    backend --> pg
+    backend <--> redis
+    backend --- vol
+    agent <-->|jobs:agent| redis
+    agent -->|internal API| backend
+    agent -->|llm network| llm
+    blender <-->|jobs:blender| redis
+    blender -->|internal API| backend
+    blender --- vol
+```
+
+**What happens when you send a message**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as Browser
+    participant B as Backend
+    participant A as Agent worker
+    participant L as LLM
+    participant W as Blender worker
+    U->>B: POST /conversations/messages
+    B-->>U: 202 { job_id }  (then SSE progress)
+    B->>A: enqueue agent job (Redis stream)
+    A->>B: load scene context (inventory, selection)
+    A->>L: classify + plan (structured JSON)
+    A->>B: submit DSL plan → validator
+    B->>W: enqueue Blender job (project locked)
+    W->>W: run allowlisted ops in sandboxed Blender
+    W->>B: staged result (.blend, .glb, thumbnail, inventory)
+    A->>A: QA against the plan (revise if needed)
+    A->>B: commit version + assistant reply
+    B-->>U: SSE: done → viewport loads the new GLB
+```
+
+| Component | Technology | Responsibility |
 |---|---|---|
-| 1 | Infrastructure, auth, project CRUD, dashboard, health checks | **Done** (pending first run on the Docker host) |
-| 2 | Blender worker, modeling DSL v1, validator, GLB export, versioned commits | **Done** (pending first run on the Docker host) |
-| 3 | Interactive workspace wired to real scenes | **Done** (pending first run on the Docker host) |
-| 4 | LLM integration (vLLM) — conversational vertical slice (§23) | **Done**, verified against a real vLLM model |
-| 5 | LangGraph multi-agent workflow (inspection, QA, clarification, revision, resume) | **Done**, verified against a real vLLM model |
-| 6 | Conversational editing & versioning (undo/redo, compare, branches, multi-select) | **Done**, verified against a real vLLM model |
-| 7 | Advanced modeling, textures, cameras/lights, renders, OBJ/STL/glTF exports | **Done**, verified with real Blender and a real vLLM model |
-| 8 | Hardening | Next |
+| **frontend** | React 18, TypeScript, Vite, React Three Fiber, TanStack Query, Zustand, nginx | SPA, 3D viewport, chat; nginx serves it and proxies `/api` with security headers |
+| **backend** | FastAPI, SQLAlchemy 2 (async), Alembic, Pydantic, structlog | Auth, projects, conversations, the DSL validator, atomic version commits, SSE, maintenance, metrics |
+| **agent-worker** | LangGraph, httpx, Postgres checkpointer | The multi-agent modeling workflow and the LLM provider abstraction (vLLM, OpenAI-compatible, offline fake) |
+| **blender-worker** | Python 3.12 service + Blender 4.5 LTS (`bl_runtime`, stdlib + bpy only) | Runs validated operation batches, exports, renders and thumbnails in isolated job workspaces |
+| **shared** | `forma3d_shared` (Pydantic) | One source of truth for the DSL, plans, jobs, events and inventory contracts |
+| **postgres** / **redis** | PostgreSQL 17, Redis 7.4 | Durable state and LangGraph checkpoints / job streams, event replay, project locks, heartbeats |
 
-## Repository layout
+Key design decisions:
+- **Only the backend writes to the database.** Workers use token-authenticated internal endpoints.
+- **Versions are immutable** and committed atomically: a directory rename plus one transaction, with
+  optimistic concurrency on the head.
+- **Stable object IDs** travel from Blender through glTF `extras` to the viewport, so a selection always maps
+  to the same object across versions.
+- **Every edit takes the same path.** Chat and direct UI edits both compile to DSL and go through the same
+  validator and Blender pipeline.
 
-```
-frontend/        React + TS + Vite (R3F viewport, TanStack Query, Zustand, Tailwind for new screens)
-backend/         FastAPI, SQLAlchemy 2 (async), Alembic, JWT + rotating refresh cookies
-agent-worker/    Agent worker: LLM providers (vLLM/OpenAI-compatible, offline fake), planner + repair loop
-blender-worker/  Redis-stream consumer + headless Blender 4.5 runtime (bl_runtime: stdlib + bpy)
-shared/          forma3d_shared: modeling DSL, validator, job/event/inventory contracts
-deployment/      docker-compose.yml, docker-compose.dev.yml, scripts
-docs/            Architecture notes, original prototype reference
-```
+More detail: [docs/architecture.md](docs/architecture.md) · DSL reference: [docs/modeling-dsl.md](docs/modeling-dsl.md) ·
+HTTP API: [docs/api.md](docs/api.md)
 
-## Running the stack (Docker host)
+## Deployment with Docker
 
-Docker runs on a separate host. From this machine either point the Docker CLI at it:
+> Full guide with HTTPS, overlays and the offline install: **[docs/deployment.md](docs/deployment.md)**
 
-```bash
-docker context create forma3d-remote --docker "host=ssh://user@docker-host"
-docker context use forma3d-remote
-```
+### Requirements
+- A Linux host with **Docker Engine 24+** and the **compose plugin v2.20+**.
+- **4 CPU cores and 8 GB RAM** minimum (8+ cores and 16 GB recommended), plus 20 GB of disk.
+- An **OpenAI-compatible LLM endpoint** reachable from the host, for example vLLM serving an instruct model.
+  Without one, set `LLM_PROVIDER=fake` to use the built-in demo planner.
+- Optional: an NVIDIA GPU with the NVIDIA Container Toolkit, for faster renders.
 
-…or copy the repo to the host and run the same commands there.
-
-```bash
-make env        # creates .env from .env.example — then edit every "change-me" value
-make up         # build + start, waits for health checks (runs DB migrations first)
-make ps
-open http://<docker-host>:3000
-```
-
-Services: `frontend` (nginx, :3000 → SPA + `/api` proxy), `backend` (FastAPI :8000, internal),
-`migrate` (one-shot `alembic upgrade head`), `agent-worker`, `blender-worker`, `postgres`, `redis`.
-Only the frontend port is published; postgres/redis/workers are on internal networks, and only
-`agent-worker` has egress (for the LLM endpoint).
-
-## Local development (no Docker)
-
-Backend (Python 3.10+ locally; containers use 3.12):
+### 1. Clone
 
 ```bash
-cd backend
-python -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt   # Windows path
-.venv/Scripts/pip install -e ../shared
-.venv/Scripts/python -m pytest -q          # SQLite + fakeredis, no services needed
+git clone https://github.com/mkamranr/forma3d.git
+cd forma3d
 ```
 
-Shared contracts and Blender worker (a local Blender 4.5 install enables the integration tests):
+### 2. Configure
 
 ```bash
-cd shared && ../backend/.venv/Scripts/python -m pytest -q
-cd blender-worker && BLENDER_BIN=/path/to/blender ../backend/.venv/Scripts/python -m pytest -q
-cd backend && BLENDER_BIN=/path/to/blender .venv/Scripts/python -m pytest -q tests/test_e2e_blender.py
+deployment/scripts/generate-secrets.sh    # creates .env with strong random secrets
+nano .env                                 # set the LLM endpoint (below)
 ```
 
-Run one job spec without Redis/backend: `cd blender-worker && python -m app.run_once spec.json`.
+```dotenv
+LLM_PROVIDER=vllm
+LLM_BASE_URL=http://10.0.0.5:8000/v1    # reachable from the containers
+LLM_MODEL=your-served-model-name
+LLM_THINKING=off                        # reasoning models: much faster plans
+COOKIE_SECURE=false                     # true once served over HTTPS
+BLENDER_WORKERS=1                       # scale up for more parallel builds
+```
 
-Agent worker (no LLM needed: tests use the deterministic `FakeProvider` and mocked HTTP):
+### 3. Build and start
 
 ```bash
-cd agent-worker && ../backend/.venv/Scripts/python -m pytest -q
+docker compose --env-file .env -f deployment/docker-compose.yml up -d --build
+docker compose --env-file .env -f deployment/docker-compose.yml ps
 ```
 
-**Whole app without Docker** (SQLite + fakeredis TCP server + the real blender-worker and
-agent-worker processes + real Blender; dev/demo only):
+The first build downloads and checksum-verifies Blender, which takes a few minutes. Services start in order
+behind health checks:
+1. postgres and redis
+2. migrate (`alembic upgrade head`)
+3. backend
+4. the workers
+5. frontend
 
-```bash
-BLENDER_BIN=/path/to/blender backend/.venv/Scripts/python deployment/scripts/dev_local.py   # API on :8000
-cd frontend && npm run dev                                                                    # UI on :5173
-```
+### 4. Open the app
 
-The agent uses the offline planner unless an LLM is configured, e.g.
-`LLM_BASE_URL=http://gpu-host:8000/v1 LLM_MODEL=<served model name>` before `dev_local.py`.
+Browse to **`http://<docker-host>:3000`**, create an account, start a project and ask for a model:
 
-## LLM configuration
+> *Create a modern wooden desk with four black metal legs*
 
-The agent worker talks to any OpenAI-compatible `/chat/completions` endpoint (vLLM recommended).
-Set in `.env`; the endpoint must be reachable from the `agent-worker` container:
+### Optional add-ons
 
-| Variable | Meaning |
+Combine compose files with extra `-f` flags:
+
+| Overlay | Adds |
 |---|---|
-| `LLM_PROVIDER` | `vllm` / `openai_compatible`, or `fake` for the offline planner (CI, demos) |
-| `LLM_BASE_URL` | e.g. `http://10.0.0.5:8000/v1` |
-| `LLM_MODEL` | served model name (`vllm serve <name>`) |
-| `LLM_MODEL_CONVERSATION`, `LLM_MODEL_PLANNING`, `LLM_MODEL_REVISION` | optional per-agent models on the same endpoint (fall back to `LLM_MODEL`) |
-| `LLM_STRUCTURED_OUTPUT` | `json_schema` (vLLM >= 0.6 `response_format`), `guided_json` (older vLLM), `json_object`, `none` |
-| `LLM_THINKING` | `auto` / `on` / `off`: vLLM `chat_template_kwargs.enable_thinking` for reasoning models (Qwen3...); `off` is far faster |
-| `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`, `LLM_TIMEOUT_SECONDS` | sampling and limits (defaults 0.2 / 8192 / 120 s) |
-| `AGENT_MAX_RETRIES` | repair attempts per LLM agent call when its output fails to parse or validate (default 2) |
-| `AGENT_MAX_REVISIONS` | QA → Revision Agent → rebuild loops per turn (default 2) |
-| `CHECKPOINT_URL` | LangGraph checkpointer: `memory`, `sqlite:///file.db` (dev_local default), `postgresql://…` (compose default, `langgraph` schema) |
-
-Whatever the model returns is parsed, schema-checked and run through the same DSL validator as
-every other edit before Blender sees it. Invalid plans go back to the model with the validator's
-issues; after the retries the user gets an explanation and the scene is unchanged. A
-structured-output mode the server rejects fails fast with a clear error (`llm_unavailable`).
-
-Frontend (Node 20):
+| `deployment/docker-compose.secrets.yml` | Secrets from files under `/run/secrets` instead of `.env` (`generate-secrets.sh --files`) |
+| `deployment/docker-compose.gpu.yml` | NVIDIA GPU rendering (OptiX/CUDA, with CPU fallback) |
+| `deployment/docker-compose.monitoring.yml` | Prometheus with Forma3D alert rules on `127.0.0.1:9090` |
 
 ```bash
-cd frontend
-npm ci
-npm test           # Vitest
-npm run build
-VITE_API_PROXY=http://localhost:8000 npm run dev
+docker compose --env-file .env \
+  -f deployment/docker-compose.yml \
+  -f deployment/docker-compose.secrets.yml \
+  -f deployment/docker-compose.gpu.yml \
+  up -d
 ```
 
-## API
+### Offline / air-gapped
 
-| Method | Path | Notes |
+```bash
+# On a connected machine
+deployment/scripts/offline-bundle.sh 1.0.0        # -> dist/forma3d-1.0.0.tar
+
+# On the target host (Docker only)
+tar -xf forma3d-1.0.0.tar && cd forma3d-1.0.0
+deployment/scripts/offline-install.sh             # verifies checksums + image digests, then installs
+```
+
+### Services
+
+| Service | Port | Networks | Notes |
+|---|---|---|---|
+| `frontend` | **3000** (published) | edge, app | The only published port |
+| `backend` | 8000 (internal) | app, data | `/health`, `/health/ready`, `/metrics` |
+| `agent-worker` | — | data, llm | The only service with outbound access (to the LLM) |
+| `blender-worker` | — | data | `BLENDER_WORKERS` replicas, CPU/memory capped |
+| `postgres`, `redis` | — | data | Persistent volumes |
+| `migrate` | — | data | One-shot schema migration |
+
+## Configuration
+
+All settings live in `.env`. See [.env.example](.env.example) for the documented list. The most important ones:
+
+| Variable | Default | Purpose |
 |---|---|---|
-| GET | `/health`, `/health/ready` | readiness checks PostgreSQL + Redis |
-| POST | `/api/v1/auth/register` · `login` · `refresh` · `logout` | access token in body; refresh token in httpOnly SameSite=strict cookie |
-| GET | `/api/v1/auth/me` | |
-| GET/POST | `/api/v1/projects` | `?q=&status=active\|archived\|all&sort=&limit=&offset=` |
-| GET/PUT/DELETE | `/api/v1/projects/{id}` | owner-scoped; other users get 404 |
-| POST | `/api/v1/projects/{id}/duplicate` | |
-| POST | `/api/v1/projects/{id}/modeling/execute` | raw DSL batch → 202 `{job_id}`; 422 `invalid_batch` with `issues`; 409 `project_busy` |
-| GET | `/api/v1/jobs/{id}` · POST `/api/v1/jobs/{id}/cancel` | |
-| GET | `/api/v1/jobs/{id}/events` | SSE (`Last-Event-ID` replay) |
-| GET | `/api/v1/projects/{id}/versions` · `/versions/{vid}` | detail includes the scene inventory |
-| GET | `/api/v1/projects/{id}/versions/{vid}/assets/{kind}` | kind = glb, thumbnail, blend, inventory, operations; ownership-checked |
-| GET | `/api/v1/projects/{id}/thumbnail` | current head thumbnail |
-| GET | `/api/v1/projects/{id}/scene` | head version + inventory + active job |
-| POST | `/api/v1/projects/{id}/scene/starter` | sample desk for an empty project |
-| POST | `/api/v1/projects/{id}/scene/objects` | add a primitive `{kind, name?, location?}` |
-| PATCH/DELETE | `/api/v1/projects/{id}/scene/objects/{object_id}` | `{name, location, rotation, dimensions, visible, material_id, light_energy, light_color, camera_lens, active_camera}`; `?recursive=true` |
-| POST | `/api/v1/projects/{id}/scene/objects/{object_id}/material` | give one object its own material |
-| PATCH | `/api/v1/projects/{id}/scene/materials/{material_id}` | edit a (possibly shared) material: colour, metallic, roughness, opacity, `transmission` (glass), `emission_strength` (glow), `texture` (pattern or `""`), `texture_image_id`, `texture_scale` |
-| POST | `/api/v1/projects/{id}/versions/{vid}/restore` | move the head; next edit branches from it |
-| POST | `/api/v1/projects/{id}/modeling/undo` · `redo` | head → parent / most recent child (409 `nothing_to_undo` / `nothing_to_redo`) |
-| POST | `/api/v1/projects/{id}/versions/compare` | `{base_version_id, target_version_id}` → objects/materials added, removed, changed (per field) |
-| GET | `/api/v1/projects/{id}/conversation` | conversation + messages (assistant metadata: `version_number`, `action: export`, ...) |
-| POST/GET | `/api/v1/projects/{id}/exports` | `{format: glb\|gltf\|obj\|stl, unit: m\|cm\|mm, include_hidden, version_id?}` → 202 output job (GLB and cached settings return `succeeded` at once); 422 for other formats |
-| GET | `/api/v1/exports/{id}` · `/exports/{id}/download` | status/progress; file as `name-vN[-unit].ext` (OBJ/glTF zipped with textures) |
-| POST/GET | `/api/v1/projects/{id}/renders` | `{engine: cycles, quality: draft\|standard\|high, width, height, camera_object_id?, transparent_background}` → 202; `eevee` → 422 `engine_unavailable` unless enabled |
-| GET | `/api/v1/renders/{id}` · `/renders/{id}/image` | PNG |
-| POST/GET | `/api/v1/projects/{id}/textures` · `/textures/{texture_id}` | multipart PNG/JPEG upload (≤10 MB, header-checked); the DSL references it by `image_id` only |
-| POST | `/api/v1/projects/{id}/conversation/messages` | `{content, selected_object_ids?, selected_object_id?}` → 202 `{message, job_id}`; follow `job_id` via SSE; 409 `project_busy` |
+| `LLM_PROVIDER` | `vllm` | `vllm`, `openai_compatible`, or `fake` (offline demo planner) |
+| `LLM_BASE_URL` / `LLM_MODEL` | — | Endpoint and served model name |
+| `LLM_MODEL_PLANNING` / `_CONVERSATION` / `_REVISION` | `LLM_MODEL` | Optional per-agent models |
+| `LLM_STRUCTURED_OUTPUT` | `json_schema` | `json_schema`, `guided_json`, `json_object` or `none` |
+| `LLM_THINKING` | `auto` | `on`/`off` for reasoning models (`chat_template_kwargs.enable_thinking`) |
+| `AGENT_MAX_RETRIES` / `AGENT_MAX_REVISIONS` | `2` / `2` | Plan repair attempts / QA revision loops |
+| `BLENDER_WORKERS`, `BLENDER_CPUS`, `BLENDER_MEMORY` | `1`, `2.0`, `4G` | Worker scale and limits |
+| `JOB_TIMEOUT_SECONDS` / `RENDER_TIMEOUT_SECONDS` | `300` / `900` | Blender job limits |
+| `MODELING_MAX_*` | 200 ops, 500 objects, 1M vertices | Validator limits |
+| `DELETED_PROJECT_RETENTION_DAYS` / `OUTPUT_RETENTION_DAYS` | `30` / `30` | Retention (`0` keeps data forever) |
+| `METRICS_TOKEN` | empty | Bearer token for `/metrics` |
 
-All scene edits compile to DSL and return 202 + `job_id`, exactly like `modeling/execute`.
-| POST | `/internal/v1/jobs/{id}/start` · `complete` | worker callbacks, `X-Internal-Token`, internal network only |
-| GET/POST | `/internal/v1/agent-jobs/{id}/context` · `plan` · `runs` · `restore` · `complete` | agent worker: context, validated plan (per attempt, `defer_commit`), agent run records, undo/restore, reply |
-| GET/POST | `/internal/v1/jobs/{id}/staged` · `commit` · `discard` | agent worker: inspect a staged Blender result, then commit it as a version or discard it |
+## Operations
 
-DSL reference: [`docs/modeling-dsl.md`](docs/modeling-dsl.md). Try it after `make up` (token from login):
+> Runbook: **[docs/operations.md](docs/operations.md)**
+
+| Task | Command |
+|---|---|
+| Back up (database + project files, checksummed) | `deployment/scripts/backup.sh /srv/backups` |
+| Restore | `deployment/scripts/restore.sh /srv/backups/forma3d-<timestamp>` |
+| Upgrade | back up → `git pull` → `docker compose ... up -d --build` (migrations run automatically) |
+| Scale | set `BLENDER_WORKERS=3` / `AGENT_WORKERS=2` in `.env` → `up -d` |
+| Logs | `docker compose ... logs -f backend agent-worker blender-worker` (JSON, with job IDs) |
+| Health | `GET /health/ready` → `ready` or `degraded` (workers, LLM, disk) |
+
+Recovery is automatic:
+- Jobs from a crashed worker are re-run by another worker.
+- Jobs that never start or never finish are failed with a clear message.
+- Abandoned results are discarded and orphaned project locks are released.
+
+## Development
+
+Run the whole app **without Docker**, using SQLite, an in-process Redis and a local Blender 4.5:
 
 ```bash
-python -c "import json;from forma3d_shared.examples import desk_batch;print(json.dumps(desk_batch()))" > desk.json
-curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"      --data @desk.json http://<docker-host>:3000/api/v1/projects/$PROJECT/modeling/execute
+python -m venv backend/.venv
+backend/.venv/bin/pip install -e shared -r backend/requirements-dev.txt \
+  -r agent-worker/requirements-dev.txt -r blender-worker/requirements-dev.txt   # Windows: .venv/Scripts/pip
+
+BLENDER_BIN=/path/to/blender \
+LLM_BASE_URL=http://gpu-host:8000/v1 LLM_MODEL=<model> \
+backend/.venv/bin/python deployment/scripts/dev_local.py     # API on :8000 (+ both workers)
+
+cd frontend && npm ci && npm run dev                         # UI on :5173
 ```
 
-Interactive docs at `/api/docs` when `APP_ENV != production`.
+Tests:
+
+| Suite | Command | Notes |
+|---|---|---|
+| Shared contracts | `cd shared && python -m pytest -q` | DSL, validator, examples |
+| Backend | `cd backend && python -m pytest -q` | SQLite + fakeredis, no services needed |
+| Agent worker | `cd agent-worker && python -m pytest -q` | Deterministic fake LLM |
+| Blender worker | `cd blender-worker && BLENDER_BIN=... python -m pytest -q` | Real Blender integration tests |
+| Frontend | `cd frontend && npm test && npm run build` | Vitest + type check |
+
+`make test` runs the Python suites inside the dev containers and the frontend tests locally.
+
+### Repository layout
+
+```
+frontend/        React + TypeScript SPA (viewport, chat, panels) and nginx config
+backend/         FastAPI app, models, Alembic migrations, services, maintenance, metrics
+agent-worker/    LangGraph workflow, agents, prompts, LLM providers
+blender-worker/  Job consumer + bl_runtime (runs inside Blender)
+shared/          forma3d_shared: DSL, validator, job/event/inventory contracts, secrets
+deployment/      Compose files, overlays, monitoring, operations scripts
+docs/            Architecture, DSL, API, deployment and operations guides
+```
+
+## Roadmap status
+
+| Phase | Scope | Status |
+|---|---|---|
+| 1 | Infrastructure, auth, projects, dashboard | ✅ |
+| 2 | Blender worker, modeling DSL, validator, versioned commits | ✅ |
+| 3 | Interactive workspace on real scenes | ✅ |
+| 4 | LLM integration: the conversational vertical slice | ✅ |
+| 5 | LangGraph multi-agent workflow (inspection, QA, clarification, revision, resume) | ✅ |
+| 6 | Conversational editing and versioning (undo/redo, compare, branches) | ✅ |
+| 7 | Advanced modeling, textures, cameras/lights, renders, exports | ✅ |
+| 8 | Hardening, recovery, monitoring, backup, offline install | ✅ |
 
 ## Known limitations
 
-- Blender runs CPU-only (Cycles thumbnail at 384 px, a few seconds per job); GPU compose is Phase 8.
-  Renders use Cycles on the CPU (draft 16 / standard 64 / high 256 samples, ≤2048 px); Eevee needs a
-  GPU/display and is off by default (`RENDER_EEVEE_ENABLED`).
-- The viewport shows lights and cameras as markers and keeps its own studio lighting; Blender lights
-  only affect renders. Glass and glow show approximately in the browser (glTF transmission/emission).
-- Procedural textures are baked to 512 px tileable images with box-projected UVs; there is no UV
-  editor. STL carries geometry only; OBJ/glTF zips include the texture images.
-- Booleans, join, remesh and decimate are destructive (applied to the mesh); undo restores the
-  previous version.
-- The Linux Blender image pins and checksum-verifies the official tarball but has not yet been built
-  on the Docker host; all Blender tests so far ran against Blender 4.5.17 on Windows.
-- LangGraph checkpoints are verified with SQLite (unit tests + `dev_local`); the Postgres checkpointer
-  (compose default) has not yet run against a real Postgres (first Docker-host run).
-- QA is geometric and deterministic (bounding boxes, relations, untouched objects); it does not judge
-  aesthetics. A staged result abandoned by a crashed worker keeps the project lock until the job
-  is reclaimed (a sweeper for orphaned staged jobs is Phase 8).
-- Agent turns run one at a time per project; UI edits get 409 `project_busy` during a turn.
-  Reply text is not streamed token by token (stage events are).
-- The offline (`fake`) provider only understands the §23 / Scenario C phrases (desk, black legs, drawers, walnut,
-  export, simple questions) and the Phase 7 scenarios (storage cabinet, office chair, cable hole, light,
-  glass, textures, STL/OBJ/glTF export, render); anything else gets a clarifying reply.
-- Every edit is a Blender job (≈5–20 s each, CPU thumbnail included); edits are disabled while one runs.
-- Gizmo resize previews scale children, but the committed `set_dimensions` only resizes the object's
-  own mesh, so children snap back when the new version loads.
-- Undo/redo move the head pointer over immutable versions (no Blender job); redo follows the most
-  recent child, so after undo + a new edit, redo goes to the new branch.
-- Project delete is a soft delete; file purge/retention job is Phase 8.
-- Duplicate still copies project metadata only (not versions); copying the head version is Phase 6.
-- Image tags are pinned; digest pinning and the offline bundle are Phase 8.
-- shadcn/ui is approximated with small hand-written Tailwind components (`frontend/src/components/ui`)
-  rather than the shadcn CLI, to avoid Radix/preflight conflicts with the prototype styles.
+- QA is geometric (dimensions, contacts, untouched objects). It does not judge aesthetics.
+- Each edit is a Blender job, taking about 5–20 s on the CPU including the thumbnail. Edits to a project
+  run one at a time.
+- The viewport uses its own studio lighting. Blender lights affect renders only, and glass and glow are
+  approximated in the browser.
+- Procedural textures use box-projected UVs; there is no UV editor. STL exports carry geometry only.
+- Booleans, join, remesh and decimate are destructive (undo restores the previous version).
+- Eevee rendering needs a GPU and is off by default; Cycles always works.
+- Duplicating a project copies its metadata, not its versions.
+- The offline `fake` provider only understands the demo scenarios (desk, cabinet, office chair and their
+  edits).
+- The Linux container images and the Postgres checkpointer have not yet been run on the target Docker host.
+  All suites pass locally, including the real-Blender suites (Blender 4.5.17 on Windows).
