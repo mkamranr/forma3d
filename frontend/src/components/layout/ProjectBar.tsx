@@ -1,4 +1,4 @@
-import { Box, History, MoreHorizontal, Redo2, Undo2 } from 'lucide-react'
+import { Box, Camera, History, MoreHorizontal, Redo2, Undo2 } from 'lucide-react'
 import type { Project } from '../../types/api'
 import { relativeTime } from '../../utils/format'
 
@@ -7,10 +7,12 @@ type HistoryControl = { undoTo: number | null; redoTo: number | null; disabled: 
 type Props = {
   project: Project | undefined
   onOpenVersions: () => void
+  /** Opens the render dialog; absent while there is nothing to render. */
+  onRender?: () => void
   history?: HistoryControl
 }
 
-export function ProjectBar({ project, onOpenVersions, history }: Props) {
+export function ProjectBar({ project, onOpenVersions, onRender, history }: Props) {
   return (
     <div className="projectbar">
       <div className="project-title">
@@ -46,6 +48,9 @@ export function ProjectBar({ project, onOpenVersions, history }: Props) {
             </button>
           </div>
         )}
+        <button className="soft-btn" onClick={onRender} disabled={!onRender} title="Render a high-quality image in Blender">
+          <Camera size={14} /> Render
+        </button>
         <button className="soft-btn" onClick={onOpenVersions} title="Every change is saved automatically as a version">
           <History size={14} /> Versions{project ? ` · ${project.version_count}` : ''}
         </button>

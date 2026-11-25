@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import bpy
 
-from .context import PROP_BASE_COLOR, PROP_MATERIAL_ID, OpError, RuntimeContext
+from .context import PROP_BASE_COLOR, PROP_EMISSION_COLOR, PROP_MATERIAL_ID, OpError, RuntimeContext
 
 
 def srgb_to_linear(c: float) -> float:
@@ -22,6 +22,40 @@ def _bsdf(mat: bpy.types.Material) -> bpy.types.Node:
     if node is None:
         raise OpError("material_corrupt", f"material '{mat.name}' has no Principled BSDF node")
     return node
+
+
+EXTRA_INPUTS = {
+    # DSL field -> Principled BSDF input (Blender 4.x names)
+    "emission_strength": "Emission Strength",
+    "transmission": "Transmission Weight",
+    "ior": "IOR",
+}
+
+
+def _input(bsdf: bpy.types.Node, name: str):
+    sock = bsdf.inputs.get(name)
+    if sock is None and name == "Transmission Weight":
+        sock = bsdf.inputs.get("Transmission")  # Blender < 4.0
+    return sock
+
+
+def _apply_extras(mat: bpy.types.Material, values: dict) -> None:
+    bsdf = _bsdf(mat)
+    if values.get("emission_color") is not None:
+        mat[PROP_EMISSION_COLOR] = values["emission_color"].upper()
+        sock = bsdf.inputs.get("Emission Color") or bsdf.inputs.get("Emission")
+        sock.default_value = (*hex_to_linear_rgba(values["emission_color"])[:3], 1.0)
+    for field, name in EXTRA_INPUTS.items():
+        if values.get(field) is not None:
+            _input(bsdf, name).default_value = float(values[field])
+    strength = _input(bsdf, "Emission Strength").default_value
+    if strength > 0 and PROP_EMISSION_COLOR not in mat:
+        # glowing without an explicit colour: glow in the base colour
+        mat[PROP_EMISSION_COLOR] = mat.get(PROP_BASE_COLOR, "#FFFFFF")
+        (bsdf.inputs.get("Emission Color") or bsdf.inputs.get("Emission")).default_value = (
+            *hex_to_linear_rgba(mat[PROP_EMISSION_COLOR])[:3],
+            1.0,
+        )
 
 
 def _apply(mat: bpy.types.Material, *, base_color=None, metallic=None, roughness=None, alpha=None) -> None:
@@ -67,6 +101,7 @@ def create_material(ctx: RuntimeContext, op: dict) -> None:
         roughness=p.get("roughness", 0.5),
         alpha=p.get("alpha", 1.0),
     )
+    _apply_extras(mat, p)
     ctx.materials[p["material_id"]] = mat
 
 
@@ -82,6 +117,7 @@ def update_material(ctx: RuntimeContext, op: dict) -> None:
         roughness=p.get("roughness"),
         alpha=p.get("alpha"),
     )
+    _apply_extras(mat, p)
     _mark_users(ctx, mat)
 
 

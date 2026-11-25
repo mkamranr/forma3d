@@ -12,9 +12,32 @@ from typing import Any
 from .schemas.scene_object import MaterialSnapshot, ObjectSnapshot, SceneInventory
 
 TOL = 1e-4
-OBJECT_FIELDS = ("name", "component_type", "parent_id", "location", "rotation", "dimensions", "visible",
-                 "material_ids", "modifiers")
-MATERIAL_FIELDS = ("name", "base_color", "metallic", "roughness", "alpha")
+OBJECT_FIELDS = (
+    "name",
+    "component_type",
+    "parent_id",
+    "location",
+    "rotation",
+    "dimensions",
+    "visible",
+    "material_ids",
+    "modifiers",
+    "vertices",
+    "camera",
+    "light",
+)
+MATERIAL_FIELDS = (
+    "name",
+    "base_color",
+    "metallic",
+    "roughness",
+    "alpha",
+    "emission_color",
+    "emission_strength",
+    "transmission",
+    "ior",
+    "texture",
+)
 
 
 def _same(a: Any, b: Any) -> bool:
@@ -22,6 +45,8 @@ def _same(a: Any, b: Any) -> bool:
         return abs(float(a) - float(b)) <= TOL
     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
         return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b, strict=True))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
     if isinstance(a, str) and isinstance(b, str) and a.startswith("#") and b.startswith("#"):
         return a.upper() == b.upper()
     return a == b
@@ -38,14 +63,18 @@ def _plain(v: Any) -> Any:
 
 
 def _fields(before: dict[str, Any], after: dict[str, Any], names: tuple[str, ...]) -> dict[str, dict[str, Any]]:
-    return {f: {"before": _plain(before.get(f)), "after": _plain(after.get(f))}
-            for f in names if not _same(before.get(f), after.get(f))}
+    return {
+        f: {"before": _plain(before.get(f)), "after": _plain(after.get(f))}
+        for f in names
+        if not _same(before.get(f), after.get(f))
+    }
 
 
 def _obj(o: ObjectSnapshot) -> dict[str, Any]:
     d = o.model_dump(mode="json")
     d["modifiers"] = sorted((m["type"], m["name"]) for m in d.get("modifiers", []))
     d["modifiers"] = [list(m) for m in d["modifiers"]]
+    d["vertices"] = o.mesh.vertices  # geometry edits (extrude, booleans) that keep the bounding box
     return d
 
 

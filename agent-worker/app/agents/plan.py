@@ -13,7 +13,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ID = r"^[a-z][a-z0-9_]{0,63}$"
-Shape = Literal["box", "cylinder", "sphere", "cone", "torus", "plane"]
+Shape = Literal["box", "cylinder", "sphere", "cone", "torus", "plane", "light"]
+SHAPES = ["box", "cylinder", "sphere", "cone", "torus", "plane", "light"]
+Texture = Literal["wood", "marble", "noise", "checker", "brick", "fabric", "concrete", "brushed_metal", ""]
+TEXTURES = ["wood", "marble", "noise", "checker", "brick", "fabric", "concrete", "brushed_metal", ""]
+LightType = Literal["point", "sun", "spot", "area"]
 Relation = Literal["on_top_of", "attached_to", "inside", "under", "beside"]
 
 
@@ -42,6 +46,12 @@ class PartSpec(_Loose):
     parent: str | None = None  # object id, or "" to detach
     visible: bool | None = None
     bevel: float | None = Field(default=None, ge=0, le=0.5)
+    #: this part is a cutting tool: it is subtracted from that object (a hole, slot or groove) and removed
+    cut_into: str | None = Field(default=None, pattern=ID)
+    # shape "light"
+    light_type: LightType | None = None
+    energy: float | None = Field(default=None, ge=0, le=100000)
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
 
     _v = field_validator("size", "position", "rotation", mode="before")(_vec)
 
@@ -64,6 +74,9 @@ class MaterialSpec(_Loose):
     metallic: float | None = Field(default=None, ge=0, le=1)
     roughness: float | None = Field(default=None, ge=0, le=1)
     alpha: float | None = Field(default=None, ge=0, le=1)
+    texture: Texture | None = None  # procedural colour pattern; "" removes it
+    emission: float | None = Field(default=None, ge=0, le=50)  # glow strength in the material colour
+    transmission: float | None = Field(default=None, ge=0, le=1)  # 1 = clear glass
 
 
 class RelationSpec(_Loose):
@@ -100,6 +113,9 @@ def plan_json_schema(*, with_clarification: bool = True) -> dict[str, Any]:
                     "metallic": {"type": "number"},
                     "roughness": {"type": "number"},
                     "alpha": {"type": "number"},
+                    "texture": {"type": "string", "enum": TEXTURES},
+                    "emission": {"type": "number"},
+                    "transmission": {"type": "number"},
                 },
             },
         },
@@ -113,7 +129,7 @@ def plan_json_schema(*, with_clarification: bool = True) -> dict[str, Any]:
                     "action": {"type": "string", "enum": ["create", "modify", "delete"]},
                     "name": {"type": "string"},
                     "component": {"type": "string"},
-                    "shape": {"type": "string", "enum": ["box", "cylinder", "sphere", "cone", "torus", "plane"]},
+                    "shape": {"type": "string", "enum": SHAPES},
                     "size": vec,
                     "position": vec,
                     "rotation": vec,
@@ -121,6 +137,10 @@ def plan_json_schema(*, with_clarification: bool = True) -> dict[str, Any]:
                     "parent": {"type": "string"},
                     "visible": {"type": "boolean"},
                     "bevel": {"type": "number"},
+                    "cut_into": {"type": "string"},
+                    "light_type": {"type": "string", "enum": ["point", "sun", "spot", "area"]},
+                    "energy": {"type": "number"},
+                    "color": {"type": "string"},
                 },
             },
         },

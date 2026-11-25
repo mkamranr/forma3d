@@ -15,7 +15,9 @@ from .inspection import scene_report
 from .llm import Result, structured_call
 
 PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
-TurnIntent = Literal["create", "modify", "question", "export", "undo", "redo", "restore", "clarify"]
+TurnIntent = Literal["create", "modify", "question", "export", "render", "undo", "redo", "restore", "clarify"]
+EXPORT_FORMATS = ("glb", "gltf", "obj", "stl")
+RENDER_QUALITIES = ("draft", "standard", "high")
 
 
 class Decision(BaseModel):
@@ -27,6 +29,8 @@ class Decision(BaseModel):
     version_number: int | None = None
     reply: str = Field(default="", max_length=2000)
     question: str = Field(default="", max_length=500)
+    export_format: str | None = None
+    render_quality: str | None = None
 
 
 SCHEMA: dict[str, Any] = {
@@ -39,6 +43,8 @@ SCHEMA: dict[str, Any] = {
         "version_number": {"type": ["integer", "null"]},
         "reply": {"type": "string", "maxLength": 2000},
         "question": {"type": "string", "maxLength": 500},
+        "export_format": {"type": ["string", "null"], "enum": [*EXPORT_FORMATS, None]},
+        "render_quality": {"type": ["string", "null"], "enum": [*RENDER_QUALITIES, None]},
     },
 }
 
@@ -106,6 +112,12 @@ def make_check(ctx: AgentContext):  # noqa: ANN201
             problems.append("intent 'clarify' needs a 'question'")
         if d.intent == "restore" and d.version_number not in ctx.version_numbers:
             problems.append(f"version_number must be one of the existing versions {ctx.version_numbers[:20]}")
+        if d.intent == "export" and d.export_format not in (None, *EXPORT_FORMATS):
+            problems.append(f"export_format must be one of {list(EXPORT_FORMATS)}")
+        if d.intent == "render" and d.render_quality not in (None, *RENDER_QUALITIES):
+            problems.append(f"render_quality must be one of {list(RENDER_QUALITIES)}")
+        if d.intent in ("export", "render") and not ids:
+            problems.append("the scene is empty: there is nothing to export or render yet; use intent 'question'")
         if d.intent == "question" and not d.reply.strip():
             problems.append("intent 'question' needs the answer in 'reply'")
         return problems

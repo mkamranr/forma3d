@@ -1,4 +1,4 @@
-import { Box } from 'lucide-react'
+import { Box, Lightbulb, Video } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useModelingAction } from '../../features/modeling/hooks'
 import { useWorkspaceScene } from '../../features/modeling/WorkspaceContext'
@@ -64,9 +64,110 @@ export function VectorField({ label, value, step, min, disabled, onCommit }: Vec
   )
 }
 
+/** Single number, same draft-then-commit behaviour as VectorField. */
+export function ScalarField({ label, value, step, min, max, unit, disabled, onCommit }: {
+  label: string
+  value: number
+  step: number
+  min?: number
+  max?: number
+  unit?: string
+  disabled: boolean
+  onCommit: (v: number) => void
+}) {
+  const [draft, setDraft] = useState(fmt(value))
+  useEffect(() => setDraft(fmt(value)), [value])
+  const commit = () => {
+    const n = Number(draft)
+    if (!Number.isFinite(n) || (min !== undefined && n < min) || (max !== undefined && n > max)) return setDraft(fmt(value))
+    if (n !== value) onCommit(n)
+  }
+  return (
+    <>
+      <div className="field-label">{label}</div>
+      <div className="vector-fields">
+        <label>
+          <input
+            type="number"
+            step={step}
+            min={min}
+            max={max}
+            disabled={disabled}
+            aria-label={label}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commit()
+              if (e.key === 'Escape') setDraft(fmt(value))
+            }}
+            onBlur={commit}
+          />
+          {unit && <span>{unit}</span>}
+        </label>
+      </div>
+    </>
+  )
+}
+
 function describe(obj: SceneObject) {
+  if (obj.type === 'LIGHT') return `${(obj.light?.light_type ?? 'point').toUpperCase()} LIGHT`
+  if (obj.type === 'CAMERA') return `CAMERA${obj.camera?.active ? ' · ACTIVE' : ''}`
   const kind = obj.component_type ? obj.component_type.replace(/_/g, ' ') : obj.type.toLowerCase()
   return `${kind.toUpperCase()} · ${obj.mesh.vertices.toLocaleString()} verts`
+}
+
+function LightProperties({ obj, disabled, submit }: { obj: SceneObject; disabled: boolean; submit: (label: string, p: ObjectPatch) => void }) {
+  const light = obj.light
+  if (!light) return null
+  return (
+    <div className="property-group">
+      <div className="property-title">LIGHT</div>
+      <ScalarField
+        label={light.light_type === 'sun' ? 'Strength' : 'Power'}
+        unit={light.light_type === 'sun' ? '' : 'W'}
+        value={light.energy}
+        step={light.light_type === 'sun' ? 0.5 : 10}
+        min={0}
+        max={light.light_type === 'sun' ? 1000 : 100000}
+        disabled={disabled}
+        onCommit={(light_energy) => submit('Changed the power of', { light_energy })}
+      />
+      <div className="field-label">Color</div>
+      <label className="toggle-row">
+        <span>{light.color}</span>
+        <input
+          type="color"
+          aria-label="Light color"
+          disabled={disabled}
+          defaultValue={light.color.toLowerCase()}
+          key={light.color}
+          onBlur={(e) => e.target.value.toUpperCase() !== light.color && submit('Recolored', { light_color: e.target.value.toUpperCase() })}
+        />
+      </label>
+    </div>
+  )
+}
+
+function CameraProperties({ obj, disabled, submit }: { obj: SceneObject; disabled: boolean; submit: (label: string, p: ObjectPatch) => void }) {
+  const cam = obj.camera
+  if (!cam) return null
+  return (
+    <div className="property-group">
+      <div className="property-title">CAMERA</div>
+      <ScalarField label="Focal length" unit="mm" value={cam.lens} step={1} min={8} max={300} disabled={disabled}
+        onCommit={(camera_lens) => submit('Changed the lens of', { camera_lens })} />
+      <label className="toggle-row" style={{ marginTop: 8 }}>
+        <span>Active render camera</span>
+        <input
+          type="checkbox"
+          disabled={disabled || cam.active}
+          checked={cam.active}
+          onChange={() => submit('Made active:', { active_camera: true })}
+        />
+        <i></i>
+      </label>
+    </div>
+  )
 }
 
 export function PropertiesPanel() {
@@ -83,7 +184,9 @@ export function PropertiesPanel() {
       {selected ? (
         <>
           <div className="object-name">
-            <div className="object-thumb"><Box size={19} /></div>
+            <div className="object-thumb">
+              {selected.type === 'LIGHT' ? <Lightbulb size={19} /> : selected.type === 'CAMERA' ? <Video size={19} /> : <Box size={19} />}
+            </div>
             <div>
               <strong>{selected.name}</strong>
               <small>{describe(selected)}</small>
@@ -95,9 +198,13 @@ export function PropertiesPanel() {
               onCommit={(location) => submit('Moved', { location })} />
             <VectorField label="Rotation" value={selected.rotation} step={1} disabled={busy}
               onCommit={(rotation) => submit('Rotated', { rotation })} />
-            <VectorField label="Dimensions" value={selected.dimensions} step={0.01} min={0.001} disabled={busy}
-              onCommit={(dimensions) => submit('Resized', { dimensions })} />
+            {selected.type === 'MESH' && (
+              <VectorField label="Dimensions" value={selected.dimensions} step={0.01} min={0.001} disabled={busy}
+                onCommit={(dimensions) => submit('Resized', { dimensions })} />
+            )}
           </div>
+          {selected.type === 'LIGHT' && <LightProperties obj={selected} disabled={busy} submit={submit} />}
+          {selected.type === 'CAMERA' && <CameraProperties obj={selected} disabled={busy} submit={submit} />}
           <div className="property-group">
             <div className="property-title">DISPLAY</div>
             <label className="toggle-row">

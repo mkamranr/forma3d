@@ -97,13 +97,21 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return (await res.json()) as T
 }
 
-type FetchOptions = { signal?: AbortSignal; headers?: Record<string, string> }
+type FetchOptions = {
+  signal?: AbortSignal
+  headers?: Record<string, string>
+  method?: string
+  /** Sent as-is (FormData uploads); the browser sets the multipart Content-Type. */
+  body?: BodyInit
+}
 
-/** Authenticated GET returning the raw Response (binary assets, SSE streams). Throws ApiError on failure. */
-export async function apiFetch(path: string, { signal, headers = {} }: FetchOptions = {}): Promise<Response> {
+/** Authenticated request returning the raw Response (binary assets, SSE streams, uploads). Throws ApiError on failure. */
+export async function apiFetch(path: string, { signal, headers = {}, method = 'GET', body }: FetchOptions = {}): Promise<Response> {
   const send = () => {
     const token = useAuthStore.getState().accessToken
     return fetch(`${API_BASE}${path}`, {
+      method,
+      body,
       headers: { ...headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       credentials: 'same-origin',
       signal,

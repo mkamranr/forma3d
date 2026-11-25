@@ -28,6 +28,10 @@ PUBLIC_METADATA = (
     "selected_object_ids",
     "export_version_id",
     "export_version_number",
+    "export_format",
+    "render_quality",
+    "output_job_id",
+    "output_error",
     "quality",
     "restored",
 )

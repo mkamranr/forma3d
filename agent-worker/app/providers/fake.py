@@ -5,6 +5,9 @@ spec scenarios: desk -> black metal legs -> two drawers -> walnut top -> export,
 "make the drawer smaller" (clarification), questions, undo/restore. It reads the scene, task and QA
 issues from the prompt like a real model, so every answer references objects that exist.
 
+Phase 7 scenarios: storage cabinet (wood texture, doors, handles), office chair (five-star base),
+a cable hole cut into the desk top (boolean), glass/texture looks, lights, exports and renders.
+
 `flaws={"drawer_gap"}` makes the planner place drawers 10 cm too low, so tests can exercise the
 QA -> Revision Agent loop against real geometry.
 """
@@ -177,6 +180,183 @@ def desk_plan() -> dict[str, Any]:
     }
 
 
+def cabinet_plan() -> dict[str, Any]:
+    """Storage cabinet: wood-textured carcass, two doors with bar handles, an inner shelf."""
+    parts: list[dict[str, Any]] = [
+        {
+            "id": "cabinet_body",
+            "action": "create",
+            "name": "Cabinet Body",
+            "component": "carcass",
+            "shape": "box",
+            "size": [0.9, 0.45, 1.8],
+            "position": [0, 0, 0.9],
+            "material": "cabinet_oak",
+            "bevel": 0.003,
+        },
+    ]
+    relations: list[dict[str, str]] = []
+    for did, name, x in (("door_left", "Door Left", -0.2245), ("door_right", "Door Right", 0.2245)):
+        parts.append(
+            {
+                "id": did,
+                "action": "create",
+                "name": name,
+                "component": "door",
+                "shape": "box",
+                "size": [0.445, 0.02, 1.76],
+                "position": [x, -0.235, 0.9],
+                "material": "cabinet_oak",
+                "parent": "cabinet_body",
+            }
+        )
+        hx = round(x + (0.17 if x < 0 else -0.17), 4)
+        parts.append(
+            {
+                "id": f"{did}_handle",
+                "action": "create",
+                "name": f"{name} Handle",
+                "component": "handle",
+                "shape": "cylinder",
+                "size": [0.016, 0.016, 0.22],
+                "position": [hx, -0.253, 1.0],
+                "material": "brushed_steel",
+                "parent": did,
+            }
+        )
+        relations += [
+            {"subject": did, "relation": "attached_to", "object": "cabinet_body"},
+            {"subject": f"{did}_handle", "relation": "attached_to", "object": did},
+        ]
+    return {
+        "summary": "Create a storage cabinet",
+        "reply": "I built an oak storage cabinet with two doors and brushed-steel bar handles.",
+        "needs_clarification": False,
+        "question": "",
+        "materials": [
+            {"id": "cabinet_oak", "name": "Cabinet Oak", "color": "#B98A5A", "roughness": 0.55, "texture": "wood"},
+            {
+                "id": "brushed_steel",
+                "name": "Brushed Steel",
+                "color": "#B8BCC2",
+                "metallic": 1.0,
+                "roughness": 0.35,
+                "texture": "brushed_metal",
+            },
+        ],
+        "parts": parts,
+        "relations": relations,
+    }
+
+
+def office_chair_plan() -> dict[str, Any]:
+    """Office chair: five-star base with casters, gas column, padded seat and backrest."""
+    import math
+
+    parts: list[dict[str, Any]] = [
+        {
+            "id": "chair_hub",
+            "action": "create",
+            "name": "Base Hub",
+            "component": "base",
+            "shape": "cylinder",
+            "size": [0.08, 0.08, 0.06],
+            "position": [0, 0, 0.08],
+            "material": "chrome",
+        },
+        {
+            "id": "gas_column",
+            "action": "create",
+            "name": "Gas Column",
+            "component": "column",
+            "shape": "cylinder",
+            "size": [0.05, 0.05, 0.3],
+            "position": [0, 0, 0.26],
+            "material": "chrome",
+            "parent": "chair_hub",
+        },
+        {
+            "id": "seat",
+            "action": "create",
+            "name": "Seat",
+            "component": "seat",
+            "shape": "box",
+            "size": [0.5, 0.48, 0.08],
+            "position": [0, 0, 0.45],
+            "material": "mesh_fabric",
+            "parent": "gas_column",
+            "bevel": 0.02,
+        },
+        {
+            "id": "backrest",
+            "action": "create",
+            "name": "Backrest",
+            "component": "backrest",
+            "shape": "box",
+            "size": [0.46, 0.06, 0.55],
+            "position": [0, 0.21, 0.765],
+            "material": "mesh_fabric",
+            "parent": "seat",
+            "bevel": 0.02,
+        },
+    ]
+    relations = [
+        {"subject": "gas_column", "relation": "on_top_of", "object": "chair_hub"},
+        {"subject": "seat", "relation": "on_top_of", "object": "gas_column"},
+        {"subject": "backrest", "relation": "on_top_of", "object": "seat"},
+    ]
+    for k in range(5):
+        a = math.radians(90 + 72 * k)
+        lid, cid = f"star_leg_{k + 1}", f"caster_{k + 1}"
+        parts.append(
+            {
+                "id": lid,
+                "action": "create",
+                "name": f"Star Leg {k + 1}",
+                "component": "leg",
+                "shape": "box",
+                "size": [0.3, 0.04, 0.03],
+                "position": [round(0.17 * math.cos(a), 4), round(0.17 * math.sin(a), 4), 0.07],
+                "rotation": [0, 0, round(90 + 72 * k, 3)],
+                "material": "chrome",
+                "parent": "chair_hub",
+            }
+        )
+        parts.append(
+            {
+                "id": cid,
+                "action": "create",
+                "name": f"Caster {k + 1}",
+                "component": "caster",
+                "shape": "sphere",
+                "size": [0.06, 0.06, 0.06],
+                "position": [round(0.3 * math.cos(a), 4), round(0.3 * math.sin(a), 4), 0.03],
+                "material": "black_plastic",
+                "parent": lid,
+            }
+        )
+        relations += [
+            {"subject": lid, "relation": "attached_to", "object": "chair_hub"},
+            {"subject": cid, "relation": "attached_to", "object": lid},
+        ]
+    return {
+        "summary": "Create an office chair",
+        "reply": "I built an office chair: five-star chrome base on casters, gas column, padded seat and backrest.",
+        "needs_clarification": False,
+        "question": "",
+        "materials": [
+            {"id": "mesh_fabric", "name": "Mesh Fabric", "color": "#2B2F36", "roughness": 0.85, "texture": "fabric"},
+            {"id": "chrome", "name": "Chrome", "color": "#D7DADF", "metallic": 1.0, "roughness": 0.15},
+            {"id": "black_plastic", "name": "Black Plastic", "color": "#151515", "roughness": 0.5},
+        ],
+        "parts": parts,
+        "relations": relations,
+    }
+
+
+EXPORT_RE = re.compile(r"\b(stl|obj|gltf|glb)\b")
+
+
 class FakeProvider:
     name = "fake"
     model = "fake-planner"
@@ -198,8 +378,23 @@ class FakeProvider:
         drawers = sorted((o for o in objects if o.get("component") == "drawer"), key=lambda o: o["position"][0])
         base = {"task": "", "targets": [], "version_number": None, "reply": "", "question": ""}
 
-        if re.search(r"\b(export|download)\b", low):
-            return {**base, "intent": "export", "reply": "Your GLB is ready — use the download button."}
+        if re.search(r"\b(export|download)\b", low) or (objects and EXPORT_RE.search(low) and "as" in low):
+            fmt = (EXPORT_RE.search(low) or re.match("(glb)", "glb")).group(1)  # type: ignore[union-attr]
+            return {
+                **base,
+                "intent": "export",
+                "export_format": fmt,
+                "reply": f"Preparing your {fmt.upper()} file — it will appear here to download.",
+            }
+        if objects and re.search(r"\b(render|picture|photo|image)\b", low) and not re.search(r"\b(add|camera)\b", low):
+            quality = (
+                "high"
+                if re.search(r"high.quality|final|photo.?real", low)
+                else "draft"
+                if "quick" in low
+                else "standard"
+            )
+            return {**base, "intent": "render", "render_quality": quality, "reply": "Rendering your model now."}
         if re.search(r"\bredo\b", low):
             return {**base, "intent": "redo", "reply": "I re-applied the change."}
         if re.search(r"\bundo\b|\bprevious version\b|\bgo back\b(?!.*version \d)", low):
@@ -242,7 +437,7 @@ class FakeProvider:
                 "targets": targets,
                 "task": f"Make {', '.join(targets)} {verb}; nothing else changes.",
             }
-        if not re.search(r"\b(create|make|build|add|change|set|turn|paint|move|delete|remove)\b", low):
+        if not re.search(r"\b(create|make|build|add|change|set|turn|paint|move|delete|remove|cut|drill|give)\b", low):
             return {**base, "intent": "clarify", "question": "What would you like me to create or change?"}
         return {
             **base,
@@ -269,8 +464,85 @@ class FakeProvider:
 
         if not objects and re.search(r"\b(desk|table)\b", task):
             return desk_plan()
+        targets = [i for i in objects if re.search(rf"\b{i}\b", task)]
+        if not objects and "cabinet" in task:
+            return cabinet_plan()
+        if not objects and "office chair" in task:
+            return office_chair_plan()
         if not objects and "chair" in task:
             return chair_plan()
+        if re.search(r"\b(hole|grommet)\b", task) and "desk_top" in objects:
+            top = objects["desk_top"]
+            x = round(top["position"][0] + top["size"][0] / 2 - 0.15, 4)
+            y = round(top["position"][1] + top["size"][1] / 2 - 0.1, 4)
+            return {
+                **empty,
+                "summary": "Cut a cable hole in the desk top",
+                "reply": "I cut a 6 cm cable hole in the back right corner of the desk top.",
+                "parts": [
+                    {
+                        "id": "cable_hole_cutter",
+                        "action": "create",
+                        "name": "Cable Hole",
+                        "shape": "cylinder",
+                        "size": [0.06, 0.06, round(top["size"][2] + 0.02, 4)],
+                        "position": [x, y, top["position"][2]],
+                        "cut_into": "desk_top",
+                    }
+                ],
+            }
+        if re.search(r"\b(light|lamp)\b", task) and objects and re.search(r"\b(add|light up)\b", task):
+            tops = [o["bounds"]["max"][2] for o in objects.values() if "bounds" in o]
+            warm = "warm" in task
+            return {
+                **empty,
+                "summary": "Add a light",
+                "reply": "I added a soft area light above the model." + (" It is a warm white." if warm else ""),
+                "parts": [
+                    {
+                        "id": "key_light",
+                        "action": "create",
+                        "name": "Key Light",
+                        "shape": "light",
+                        "light_type": "area",
+                        "position": [0.6, -0.8, round(max(tops, default=1.0) + 1.2, 3)],
+                        "energy": 400,
+                        "color": "#FFD9A8" if warm else "#FFFFFF",
+                    }
+                ],
+            }
+        if "glass" in task and targets:
+            return {
+                **empty,
+                "summary": f"Make {', '.join(targets)} glass",
+                "reply": f"{', '.join(targets)} is now clear glass.",
+                "materials": []
+                if "clear_glass" in mats
+                else [
+                    {
+                        "id": "clear_glass",
+                        "name": "Clear Glass",
+                        "color": "#EAF4F7",
+                        "roughness": 0.05,
+                        "transmission": 1.0,
+                    }
+                ],
+                "parts": [{"id": i, "action": "modify", "material": "clear_glass"} for i in targets],
+            }
+        if (
+            (tex := re.search(r"\b(wood|marble|brick|fabric|concrete|checker)\b", task))
+            and "texture" in task
+            and targets
+        ):
+            kind = tex.group(1)
+            used = {o.get("material") for i, o in objects.items() if i in targets} - {None}
+            return {
+                **empty,
+                "summary": f"Give {', '.join(targets)} a {kind} texture",
+                "reply": f"{', '.join(targets)} now has a {kind} texture.",
+                "materials": [{"id": m, "texture": kind} for m in sorted(used)],
+                "parts": [],
+            }
         targets = [i for i in objects if re.search(rf"\b{i}\b", task)]
         if "taller" in task and targets:
             parts = []

@@ -67,7 +67,37 @@ Full examples are `forma3d_shared.examples.desk_batch()` and `black_metal_legs_b
 | `bevel` | required (mesh) | width?, segments? (≤ 10), limit_method?, angle? |
 | `solidify` | required (mesh) | thickness?, offset? |
 
-Export, thumbnail rendering and saving are system steps. The DSL can't invoke them.
+### Phase 7 operations
+
+| Operation | `target_object_id` | Parameters |
+|---|---|---|
+| `create_circle` | required (new id) | name, …common?, radius?, vertices?, fill? |
+| `create_mesh` | required (new id) | name, …common?, vertices (≤ 5000), faces (3–64 indices each, all in range) |
+| `create_curve` | required (new id) | name, …common?, points, curve_type (`poly` \| `smooth`)?, cyclic?, thickness?, profile_resolution?, resolution? — swept to a tube mesh |
+| `extrude` | required (mesh) | side (`top` `bottom` `front` `back` `left` `right`, front = −Y), distance (≠ 0) |
+| `inset` | required (mesh) | side \| `all`, thickness, depth? |
+| `boolean_union` / `boolean_difference` / `boolean_intersect` | required (mesh) | operand_id (a mesh without children), keep_operand?, solver (`exact` \| `fast`)? — applied; the operand is deleted unless kept |
+| `subdivide` | required (mesh) | levels (≤ `max_subdivision_levels`), smooth? |
+| `mirror` | required (mesh) | axes (unique), mirror_object_id?, merge?, bisect? |
+| `array` | required (mesh) | count (≤ `max_array_count`), offset, merge? |
+| `remesh` | required (mesh) | voxel_size (≥ 0.002; density guarded at run time), smooth_shading? |
+| `decimate` | required (mesh) | ratio |
+| `apply_transform` | required | location?, rotation?, scale? (booleans: bake into the mesh; children keep their place) |
+| `set_origin` | required | mode (`geometry_center` \| `bounds_bottom` \| `world_origin` \| `point`), point? |
+| `join_objects` | required (mesh) | object_ids (meshes; their children are re-parented) |
+| `separate_objects` | required (mesh) | mode (`loose_parts` \| `material`), new_object_ids, names? — the largest part keeps the id |
+| `add_camera` / `update_camera` | required (new / camera) | name?, location?, look_at \| rotation, lens (8–300 mm)?, set_active? |
+| `add_light` / `update_light` | required (new / light) | name?, light_type (`point` `sun` `spot` `area`)?, location?, look_at \| rotation, color?, energy?, radius?, spot_angle? |
+| `set_world_background` | — | color, strength? |
+| `assign_texture` | — | material_id, pattern \| image_id, color_a? / color_b? (patterns only), scale?, rotation? |
+| `remove_texture` | — | material_id |
+
+`create_material` / `update_material` also accept `emission_color`, `emission_strength`, `transmission`
+and `ior`. Patterns: wood, marble, noise, checker, brick, fabric, concrete, brushed_metal. `image_id` is
+an uploaded texture (`POST /projects/{id}/textures`); file paths never appear in the DSL.
+
+Export, thumbnail rendering and saving are system steps. The DSL can't invoke them. Renders and
+OBJ/STL/glTF exports are separate jobs (`POST /projects/{id}/renders|exports`) that read a committed version.
 
 ## Validation
 

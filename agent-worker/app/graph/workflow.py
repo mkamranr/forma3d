@@ -198,10 +198,18 @@ class Workflow:
 
     def answer(self, state: TurnState, config: RunnableConfig) -> dict:
         d = state["decision"]
-        reply = d.get("reply") or (
-            "Your model is ready — use the download button to get the GLB." if d["intent"] == "export" else "Done."
-        )
-        return {"outcome": {"success": True, "intent": d["intent"], "reply": reply}}
+        metadata: dict = {}
+        if d["intent"] == "export":
+            fmt = d.get("export_format") or "glb"
+            metadata["export_format"] = fmt
+            default = f"Preparing your {fmt.upper()} download."
+        elif d["intent"] == "render":
+            metadata["render_quality"] = d.get("render_quality") or "standard"
+            default = "Rendering an image of your model."
+        else:
+            default = "Done."
+        reply = d.get("reply") or default
+        return {"outcome": {"success": True, "intent": d["intent"], "reply": reply, "metadata": metadata}}
 
     def version_manager(self, state: TurnState, config: RunnableConfig) -> dict:
         job = _job(config)
@@ -551,6 +559,7 @@ class Workflow:
         return {
             "question": "answer",
             "export": "answer",
+            "render": "answer",
             "undo": "version_manager",
             "redo": "version_manager",
             "restore": "version_manager",

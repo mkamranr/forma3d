@@ -97,6 +97,21 @@ class JobService:
             log.info("job.complete_ignored", job_id=str(job.id), status=job.status)
             return job_out(job)
 
+        if job.job_type in ("render", "export"):
+            job.diagnostics = {
+                "worker_id": result.worker_id,
+                "error_code": result.error_code,
+                "duration_ms": result.duration_ms,
+                "blender_version": result.blender_version,
+                "log_tail": result.log_tail[-4000:],
+            }
+            from app.core.config import get_settings
+            from app.services.output_service import OutputService
+
+            await OutputService(self.session, self.redis, get_settings(), self.storage).complete(job, result)
+            await self.redis.delete(cancel_flag_key(job.id))
+            return job_out(job)
+
         project = await self.session.get(Project, job.project_id)
         batch = await self.repo.get_batch(job.operation_batch_id) if job.operation_batch_id else None
         assert project is not None

@@ -4,6 +4,7 @@ import { glbUrl, useConversation, useSendMessage, useVersions } from '../../feat
 import { useWorkspaceScene } from '../../features/modeling/WorkspaceContext'
 import { downloadAsset } from '../../services/scene'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
+import { OutputChip } from '../outputs/Outputs'
 import type { ConversationMessage } from '../../types/scene'
 import { clockTime } from '../../utils/format'
 
@@ -83,7 +84,13 @@ function MessageView({ m, projectName, highlighted }: { m: ConversationMessage; 
           </button>
         ) : null}
         {m.metadata.quality && <QualityChip quality={m.metadata.quality} />}
-        {m.metadata.action === 'export' && <ExportButton message={m} projectName={projectName} />}
+        {m.metadata.action && m.metadata.output_job_id ? (
+          <OutputChip kind={m.metadata.action} id={m.metadata.output_job_id} projectName={projectName} />
+        ) : m.metadata.output_error ? (
+          <div className="chat-chip muted">{m.metadata.output_error}</div>
+        ) : (
+          m.metadata.action === 'export' && <ExportButton message={m} projectName={projectName} />
+        )}
       </div>
     </div>
   )

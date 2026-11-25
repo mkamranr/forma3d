@@ -100,6 +100,75 @@ def _bm_torus(p: dict) -> bmesh.types.BMesh:
     return bm
 
 
+def _bm_circle(p: dict) -> bmesh.types.BMesh:
+    bm = bmesh.new()
+    bmesh.ops.create_circle(
+        bm,
+        cap_ends=True,
+        cap_tris=p.get("fill") == "triangle_fan",
+        segments=int(p.get("vertices", 32)),
+        radius=float(p.get("radius", 0.5)),
+    )
+    return bm
+
+
+def _bm_mesh(p: dict) -> bmesh.types.BMesh:
+    bm = bmesh.new()
+    verts = [bm.verts.new(Vector(v)) for v in p["vertices"]]
+    for i, face in enumerate(p["faces"]):
+        try:
+            bm.faces.new([verts[j] for j in face])
+        except ValueError as exc:  # duplicate face / degenerate loop
+            bm.free()
+            raise OpError("invalid_mesh", f"face {i} is invalid: {exc}") from None
+    loose = [v for v in bm.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context="VERTS")
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return bm
+
+
+def _bm_curve(p: dict) -> bmesh.types.BMesh:
+    """Build a curve with a round bevel profile, evaluate it and keep only the tube mesh."""
+    curve = bpy.data.curves.new("__f3d_curve", "CURVE")
+    curve.dimensions = "3D"
+    curve.bevel_mode = "ROUND"
+    curve.bevel_depth = float(p.get("thickness", 0.02)) / 2
+    curve.bevel_resolution = int(p.get("profile_resolution", 4))
+    curve.use_fill_caps = True
+    curve.resolution_u = int(p.get("resolution", 12))
+    points = [Vector(v) for v in p["points"]]
+    if p.get("curve_type", "smooth") == "smooth":
+        spline = curve.splines.new("BEZIER")
+        spline.bezier_points.add(len(points) - 1)
+        for bp, co in zip(spline.bezier_points, points, strict=True):
+            bp.co = co
+            bp.handle_left_type = bp.handle_right_type = "AUTO"
+    else:
+        spline = curve.splines.new("POLY")
+        spline.points.add(len(points) - 1)
+        for sp, co in zip(spline.points, points, strict=True):
+            sp.co = (*co, 1.0)
+    spline.use_cyclic_u = bool(p.get("cyclic", False))
+    tmp = bpy.data.objects.new("__f3d_curve", curve)
+    bpy.context.scene.collection.objects.link(tmp)
+    try:
+        bpy.context.view_layer.update()
+        evaluated = tmp.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        mesh = bpy.data.meshes.new_from_object(evaluated)
+    finally:
+        bpy.data.objects.remove(tmp, do_unlink=True)
+        bpy.data.curves.remove(curve)
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bpy.data.meshes.remove(mesh)
+    if not bm.faces:
+        bm.free()
+        raise OpError("empty_curve", "the curve produced no geometry; increase thickness")
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-6)
+    return bm
+
+
 BUILDERS = {
     "create_cube": _bm_cube,
     "create_plane": _bm_plane,
@@ -107,6 +176,9 @@ BUILDERS = {
     "create_cylinder": _bm_cylinder,
     "create_cone": _bm_cone_op,
     "create_torus": _bm_torus,
+    "create_circle": _bm_circle,
+    "create_mesh": _bm_mesh,
+    "create_curve": _bm_curve,
 }
 
 

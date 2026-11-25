@@ -19,8 +19,39 @@ def op(**kw):
 
 
 def test_allowlist_matches_models():
-    assert len(ALLOWED_OPERATIONS) == len(OPERATION_MODELS) == 27
-    assert {"create_cube", "set_dimensions", "assign_material", "bevel"} <= ALLOWED_OPERATIONS
+    assert len(ALLOWED_OPERATIONS) == len(OPERATION_MODELS) == 51
+    assert {
+        "create_cube",
+        "set_dimensions",
+        "assign_material",
+        "bevel",
+        "boolean_difference",
+        "add_light",
+    } <= ALLOWED_OPERATIONS
+    # spec §8.2: every listed modeling op is registered (exports are system jobs, not DSL ops)
+    assert {
+        "create_circle",
+        "create_mesh",
+        "create_curve",
+        "extrude",
+        "inset",
+        "boolean_union",
+        "boolean_intersect",
+        "subdivide",
+        "mirror",
+        "array",
+        "remesh",
+        "decimate",
+        "apply_transform",
+        "set_origin",
+        "join_objects",
+        "separate_objects",
+        "assign_texture",
+        "add_camera",
+        "update_camera",
+        "update_light",
+        "set_world_background",
+    } <= ALLOWED_OPERATIONS
     assert "clear_scene" not in ALLOWED_OPERATIONS
 
 

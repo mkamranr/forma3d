@@ -16,8 +16,8 @@ Full specification: [`project-specification.md`](project-specification.md).
 | 4 | LLM integration (vLLM) — conversational vertical slice (§23) | **Done**, verified against a real vLLM model |
 | 5 | LangGraph multi-agent workflow (inspection, QA, clarification, revision, resume) | **Done**, verified against a real vLLM model |
 | 6 | Conversational editing & versioning (undo/redo, compare, branches, multi-select) | **Done**, verified against a real vLLM model |
-| 7 | Advanced modeling and rendering | Next |
-| 8 | Hardening | — |
+| 7 | Advanced modeling, textures, cameras/lights, renders, OBJ/STL/glTF exports | **Done**, verified with real Blender and a real vLLM model |
+| 8 | Hardening | Next |
 
 ## Repository layout
 
@@ -144,13 +144,18 @@ VITE_API_PROXY=http://localhost:8000 npm run dev
 | GET | `/api/v1/projects/{id}/scene` | head version + inventory + active job |
 | POST | `/api/v1/projects/{id}/scene/starter` | sample desk for an empty project |
 | POST | `/api/v1/projects/{id}/scene/objects` | add a primitive `{kind, name?, location?}` |
-| PATCH/DELETE | `/api/v1/projects/{id}/scene/objects/{object_id}` | `{name, location, rotation, dimensions, visible, material_id}`; `?recursive=true` |
+| PATCH/DELETE | `/api/v1/projects/{id}/scene/objects/{object_id}` | `{name, location, rotation, dimensions, visible, material_id, light_energy, light_color, camera_lens, active_camera}`; `?recursive=true` |
 | POST | `/api/v1/projects/{id}/scene/objects/{object_id}/material` | give one object its own material |
-| PATCH | `/api/v1/projects/{id}/scene/materials/{material_id}` | edit a (possibly shared) material |
+| PATCH | `/api/v1/projects/{id}/scene/materials/{material_id}` | edit a (possibly shared) material: colour, metallic, roughness, opacity, `transmission` (glass), `emission_strength` (glow), `texture` (pattern or `""`), `texture_image_id`, `texture_scale` |
 | POST | `/api/v1/projects/{id}/versions/{vid}/restore` | move the head; next edit branches from it |
 | POST | `/api/v1/projects/{id}/modeling/undo` · `redo` | head → parent / most recent child (409 `nothing_to_undo` / `nothing_to_redo`) |
 | POST | `/api/v1/projects/{id}/versions/compare` | `{base_version_id, target_version_id}` → objects/materials added, removed, changed (per field) |
 | GET | `/api/v1/projects/{id}/conversation` | conversation + messages (assistant metadata: `version_number`, `action: export`, ...) |
+| POST/GET | `/api/v1/projects/{id}/exports` | `{format: glb\|gltf\|obj\|stl, unit: m\|cm\|mm, include_hidden, version_id?}` → 202 output job (GLB and cached settings return `succeeded` at once); 422 for other formats |
+| GET | `/api/v1/exports/{id}` · `/exports/{id}/download` | status/progress; file as `name-vN[-unit].ext` (OBJ/glTF zipped with textures) |
+| POST/GET | `/api/v1/projects/{id}/renders` | `{engine: cycles, quality: draft\|standard\|high, width, height, camera_object_id?, transparent_background}` → 202; `eevee` → 422 `engine_unavailable` unless enabled |
+| GET | `/api/v1/renders/{id}` · `/renders/{id}/image` | PNG |
+| POST/GET | `/api/v1/projects/{id}/textures` · `/textures/{texture_id}` | multipart PNG/JPEG upload (≤10 MB, header-checked); the DSL references it by `image_id` only |
 | POST | `/api/v1/projects/{id}/conversation/messages` | `{content, selected_object_ids?, selected_object_id?}` → 202 `{message, job_id}`; follow `job_id` via SSE; 409 `project_busy` |
 
 All scene edits compile to DSL and return 202 + `job_id`, exactly like `modeling/execute`.
@@ -170,6 +175,14 @@ Interactive docs at `/api/docs` when `APP_ENV != production`.
 ## Known limitations
 
 - Blender runs CPU-only (Cycles thumbnail at 384 px, a few seconds per job); GPU compose is Phase 8.
+  Renders use Cycles on the CPU (draft 16 / standard 64 / high 256 samples, ≤2048 px); Eevee needs a
+  GPU/display and is off by default (`RENDER_EEVEE_ENABLED`).
+- The viewport shows lights and cameras as markers and keeps its own studio lighting; Blender lights
+  only affect renders. Glass and glow show approximately in the browser (glTF transmission/emission).
+- Procedural textures are baked to 512 px tileable images with box-projected UVs; there is no UV
+  editor. STL carries geometry only; OBJ/glTF zips include the texture images.
+- Booleans, join, remesh and decimate are destructive (applied to the mesh); undo restores the
+  previous version.
 - The Linux Blender image pins and checksum-verifies the official tarball but has not yet been built
   on the Docker host; all Blender tests so far ran against Blender 4.5.17 on Windows.
 - LangGraph checkpoints are verified with SQLite (unit tests + `dev_local`); the Postgres checkpointer
@@ -180,7 +193,8 @@ Interactive docs at `/api/docs` when `APP_ENV != production`.
 - Agent turns run one at a time per project; UI edits get 409 `project_busy` during a turn.
   Reply text is not streamed token by token (stage events are).
 - The offline (`fake`) provider only understands the §23 / Scenario C phrases (desk, black legs, drawers, walnut,
-  export, simple questions); anything else gets a clarifying reply.
+  export, simple questions) and the Phase 7 scenarios (storage cabinet, office chair, cable hole, light,
+  glass, textures, STL/OBJ/glTF export, render); anything else gets a clarifying reply.
 - Every edit is a Blender job (≈5–20 s each, CPU thumbnail included); edits are disabled while one runs.
 - Gizmo resize previews scale children, but the committed `set_dimensions` only resizes the object's
   own mesh, so children snap back when the new version loads.

@@ -27,7 +27,7 @@ export function TopBar({ version, building, onExport }: Props) {
       <div className="top-actions">
         <button className="icon-btn" title="Help"><CircleHelp size={17} /></button>
         <button className="icon-btn" title="Settings"><Settings2 size={17} /></button>
-        <button className="share-btn" onClick={onExport} disabled={!version} title="Download the current version as GLB"><Download size={15} /> Export GLB</button>
+        <button className="share-btn" onClick={onExport} disabled={!version} title="Export as GLB, glTF, OBJ or STL"><Download size={15} /> Export</button>
         <UserMenu />
       </div>
     </header>

@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Circle, Cuboid, Eye, EyeOff, Folder, Plus, Square, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Circle, Cuboid, Eye, EyeOff, Folder, Lightbulb, Plus, Square, Trash2, Video } from 'lucide-react'
 import { useMemo, useState, type KeyboardEvent } from 'react'
 import { useModelingAction } from '../../features/modeling/hooks'
 import { useWorkspaceScene } from '../../features/modeling/WorkspaceContext'
@@ -30,6 +30,8 @@ export function buildTree(objects: SceneObject[]): Node[] {
 const countDescendants = (n: Node): number => n.children.reduce((sum, c) => sum + 1 + countDescendants(c), 0)
 
 function ShapeIcon({ obj }: { obj: SceneObject }) {
+  if (obj.type === 'LIGHT') return <Lightbulb size={13} />
+  if (obj.type === 'CAMERA') return <Video size={13} />
   const c = (obj.component_type ?? obj.name).toLowerCase()
   if (c.includes('sphere') || c.includes('ball')) return <Circle size={13} />
   if (c.includes('cylinder') || c.includes('leg') || c.includes('cone')) return <Cuboid size={13} />

@@ -70,3 +70,27 @@ def validate_outputs(out_dir: Path, *, expect_thumbnail: bool, max_bytes: int) -
     if missing:
         raise ArtifactError("glb_incomplete", f"GLB is missing objects: {', '.join(sorted(missing)[:5])}")
     return artifacts, inventory
+
+
+_ZIP_MAGIC = b"PK\x03\x04"
+
+
+def validate_derived(out_dir: Path, filename: str, kind: str, *, max_bytes: int) -> Artifact:
+    """Render / export outputs: one file, bounded size, matching signature."""
+    path = out_dir / filename
+    if not path.is_file():
+        raise ArtifactError("missing_artifact", f"Blender did not produce {filename}")
+    size = path.stat().st_size
+    if size == 0 or size > max_bytes:
+        raise ArtifactError("artifact_size", f"{filename} has invalid size {size}")
+    head = path.read_bytes()[:84]
+    if filename.endswith(".png") and head[:8] != _PNG_MAGIC:
+        raise ArtifactError("invalid_render", f"{filename} is not a PNG")
+    if filename.endswith(".zip") and head[:4] != _ZIP_MAGIC:
+        raise ArtifactError("invalid_export", f"{filename} is not a zip archive")
+    if filename.endswith(".stl"):
+        # binary STL: 80-byte header, uint32 triangle count, 50 bytes per triangle
+        triangles = struct.unpack("<I", head[80:84])[0] if len(head) >= 84 else -1
+        if triangles <= 0 or size != 84 + 50 * triangles:
+            raise ArtifactError("invalid_export", "STL file is empty or truncated")
+    return Artifact(kind=kind, filename=filename, size=size, sha256=sha256_file(path))  # type: ignore[arg-type]

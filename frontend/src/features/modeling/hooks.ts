@@ -8,9 +8,69 @@ import { compareVersions, fetchAsset, getJob, getScene, listVersions, restoreVer
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import type { Conversation, SubmitResponse, Version } from '../../types/scene'
 import { projectKeys } from '../projects/hooks'
+import {
+  createExport,
+  createRender,
+  getExport,
+  getRender,
+  listRenders,
+  listTextures,
+  uploadTexture,
+} from '../../services/outputs'
+import type { ExportRequest, Output, RenderRequest } from '../../types/scene'
+
+export type OutputKind = 'export' | 'render'
+const PENDING = new Set(['queued', 'running'])
+
+/** One render/export; polls while Blender works on it. */
+export function useOutput(kind: OutputKind, id: string | null | undefined) {
+  return useQuery({
+    queryKey: sceneKeys.output(kind, id ?? 'none'),
+    queryFn: () => (kind === 'export' ? getExport(id as string) : getRender(id as string)),
+    enabled: !!id,
+    refetchInterval: (q) => (q.state.data && !PENDING.has(q.state.data.status) ? false : 1500),
+  })
+}
+
+export function useRenders(projectId: string) {
+  return useQuery({
+    queryKey: sceneKeys.renders(projectId),
+    queryFn: () => listRenders(projectId),
+    enabled: !!projectId,
+    refetchInterval: (q) => (q.state.data?.some((r) => PENDING.has(r.status)) ? 2000 : false),
+  })
+}
+
+export function useCreateOutput(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (req: { kind: 'export'; body: ExportRequest } | { kind: 'render'; body: RenderRequest }) =>
+      req.kind === 'export' ? createExport(projectId, req.body) : createRender(projectId, req.body),
+    onSuccess: (out: Output, req) => {
+      qc.setQueryData(sceneKeys.output(req.kind, out.id), out)
+      void qc.invalidateQueries({ queryKey: req.kind === 'render' ? sceneKeys.renders(projectId) : sceneKeys.exports(projectId) })
+    },
+  })
+}
+
+export function useTextures(projectId: string, enabled = true) {
+  return useQuery({ queryKey: sceneKeys.textures(projectId), queryFn: () => listTextures(projectId), enabled: !!projectId && enabled })
+}
+
+export function useUploadTexture(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (file: File) => uploadTexture(projectId, file),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: sceneKeys.textures(projectId) }),
+  })
+}
 
 export const sceneKeys = {
   scene: (projectId: string) => ['scene', projectId] as const,
+  renders: (projectId: string) => ['renders', projectId] as const,
+  exports: (projectId: string) => ['exports', projectId] as const,
+  output: (kind: OutputKind, id: string) => ['output', kind, id] as const,
+  textures: (projectId: string) => ['textures', projectId] as const,
   versions: (projectId: string) => ['versions', projectId] as const,
   model: (versionId: string) => ['model', versionId] as const,
   conversation: (projectId: string) => ['conversation', projectId] as const,

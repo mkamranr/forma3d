@@ -14,6 +14,11 @@ PROP_VISIBLE = "app_visible"
 PROP_MATERIAL_ID = "app_material_id"
 PROP_BASE_COLOR = "app_base_color"
 PROP_COLLECTION_ID = "app_collection_id"
+PROP_EMISSION_COLOR = "app_emission_color"
+PROP_TEXTURE = "app_texture"  # JSON: {"pattern"|"image_id", "color_a", "color_b", "scale", "rotation"}
+PROP_LIGHT_COLOR = "app_light_color"
+PROP_WORLD_COLOR = "app_world_color"
+PROP_WORLD_STRENGTH = "app_world_strength"
 
 
 class OpError(Exception):
@@ -26,9 +31,19 @@ class OpError(Exception):
 
 
 class RuntimeContext:
-    def __init__(self, project_id: str, version_number: int) -> None:
+    def __init__(
+        self,
+        project_id: str,
+        version_number: int,
+        *,
+        limits: dict | None = None,
+        textures: dict[str, str] | None = None,
+    ) -> None:
         self.project_id = project_id
         self.version = version_number
+        self.limits = limits or {}
+        #: uploaded texture image id -> verified file inside the job workspace
+        self.textures = textures or {}
         self.objects: dict[str, bpy.types.Object] = {}
         self.materials: dict[str, bpy.types.Material] = {}
         self.collections: dict[str, bpy.types.Collection] = {}

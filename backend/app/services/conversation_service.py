@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.errors import ConflictError, NotFoundError, ServiceUnavailableError
+from app.core.errors import AppError, ConflictError, NotFoundError, ServiceUnavailableError
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.models import AgentRun, Conversation, Job, Message, ModelingPlan, OperationBatch, Project, SceneVersion
@@ -25,6 +25,7 @@ from app.services import history_service
 from app.services.events import EventPublisher
 from app.services.locks import AdmissionGate
 from app.services.modeling_service import ModelingService
+from app.services.output_service import OutputService
 from app.services.storage import ProjectStorage
 from forma3d_shared import DSL_SCHEMA_VERSION
 from forma3d_shared.schemas.agent import (
@@ -38,12 +39,15 @@ from forma3d_shared.schemas.agent import (
     SubmitPlanRequest,
 )
 from forma3d_shared.schemas.events import cancel_flag_key
+from forma3d_shared.schemas.job import DOWNLOAD_FORMATS, RenderSettings
 from forma3d_shared.schemas.scene_object import SceneInventory
 
 log = get_logger(__name__)
 
 HISTORY_TURNS = 12
 ACTIVE = ("queued", "running")
+#: Jobs that change the scene. Renders and exports only read a version and never block editing.
+SCENE_JOB_TYPES = ("agent", "modeling")
 
 
 class ConversationService:
@@ -138,7 +142,9 @@ class ConversationService:
         if project.status != "active":
             raise ConflictError("Archived projects are read-only; unarchive it first", code="project_archived")
         active = await self.session.execute(
-            select(Job.id).where(Job.project_id == project.id, Job.status.in_(ACTIVE)).limit(1)
+            select(Job.id)
+            .where(Job.project_id == project.id, Job.status.in_(ACTIVE), Job.job_type.in_(SCENE_JOB_TYPES))
+            .limit(1)
         )
         if active.first() is not None:
             raise ConflictError("Another change to this project is still being built", code="project_busy")
@@ -353,13 +359,8 @@ class ConversationService:
                             plan.status = "completed"
                 if mjob.status in ("failed", "cancelled"):
                     metadata.setdefault("error_code", mjob.diagnostics.get("error_code"))
-        if body.intent == "export":
-            metadata["action"] = "export"
-            project = await self.session.get(Project, job.project_id)
-            if project is not None and project.current_version_id is not None:
-                head = await self.session.get(SceneVersion, project.current_version_id)
-                if head is not None:  # pin the download to what the user saw when they asked
-                    metadata.update(export_version_id=str(head.id), export_version_number=head.version_number)
+        if body.intent in ("export", "render") and body.success:
+            await self._start_output(job, body, metadata)
         if body.error_code:
             metadata["error_code"] = body.error_code
 
@@ -403,6 +404,39 @@ class ConversationService:
                 data=event_data,
             )
         return message
+
+    async def _start_output(self, job: Job, body: AgentCompleteRequest, metadata: dict[str, Any]) -> None:
+        """ "Export it as STL" / "render a picture": start the export or render job for the version the
+        user was looking at; the chat message then tracks it (download button / image)."""
+        metadata["action"] = body.intent
+        project = await self.session.get(Project, job.project_id)
+        head = (
+            await self.session.get(SceneVersion, project.current_version_id)
+            if project and project.current_version_id
+            else None
+        )
+        if project is None or head is None:
+            metadata["output_error"] = "There is no model to export yet."
+            return
+        # pin the output to what the user saw when they asked
+        metadata.update(export_version_id=str(head.id), export_version_number=head.version_number)
+        svc = OutputService(self.session, self.redis, self.settings, ProjectStorage(self.settings.data_root))
+        try:
+            if body.intent == "export":
+                fmt = body.metadata.get("export_format")
+                fmt = fmt if fmt in DOWNLOAD_FORMATS else "glb"
+                metadata["export_format"] = fmt
+                out = await svc.create_export(project.user_id, project.id, fmt, version_id=head.id)
+            else:
+                quality = body.metadata.get("render_quality")
+                quality = quality if quality in ("draft", "standard", "high") else "standard"
+                metadata["render_quality"] = quality
+                out = await svc.create_render(
+                    project.user_id, project.id, RenderSettings(quality=quality, width=1280, height=720), head.id
+                )
+            metadata["output_job_id"] = str(out.id)
+        except AppError as exc:
+            metadata["output_error"] = exc.message
 
     async def batch_for(self, batch_id: uuid.UUID) -> OperationBatch | None:
         return await self.session.get(OperationBatch, batch_id)

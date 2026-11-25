@@ -19,7 +19,9 @@ from pydantic import ValidationError
 
 from forma3d_shared.constants.limits import ModelingLimits
 from forma3d_shared.schemas.modeling_operation import (
+    BOOLEAN_TYPES,
     CREATE_PRIMITIVE_TYPES,
+    MESH_ONLY_TYPES,
     Operation,
     OperationBatch,
 )
@@ -80,6 +82,14 @@ class _Scene:
         self.materials: set[str] = {m.material_id for m in inventory.materials}
         self.collections: set[str] = {c.collection_id for c in inventory.collections}
 
+    def ancestors(self, oid: str) -> set[str]:
+        out: set[str] = set()
+        cur = self.objects[oid].parent
+        while cur and cur in self.objects and cur not in out:
+            out.add(cur)
+            cur = self.objects[cur].parent
+        return out
+
     def descendants(self, oid: str) -> set[str]:
         out: set[str] = set()
         stack = list(self.objects[oid].children)
@@ -126,7 +136,28 @@ def _primitive_vertices(op: Any) -> int:
         return p.vertices * 2
     if t == "create_torus":
         return p.major_segments * p.minor_segments
+    if t == "create_circle":
+        return p.vertices + (1 if p.fill == "triangle_fan" else 0)
+    if t == "create_mesh":
+        return len(p.vertices)
+    if t == "create_curve":
+        segments = len(p.points) * (p.resolution if p.curve_type == "smooth" else 1)
+        ring = 4 + 2 * p.profile_resolution
+        return (segments + 1) * ring * 2 + 2
     return 0
+
+
+def referenced_image_ids(operations: list[Any]) -> list[str]:
+    """Uploaded texture images a batch uses (the backend resolves them to stored files)."""
+    out: list[str] = []
+    for op in operations:
+        t = op.get("operation_type") if isinstance(op, dict) else op.operation_type
+        if t != "assign_texture":
+            continue
+        p = op.get("parameters", {}) if isinstance(op, dict) else op.parameters.model_dump()
+        if p.get("image_id") and p["image_id"] not in out:
+            out.append(p["image_id"])
+    return out
 
 
 # --------------------------------------------------------------------------- entry point
@@ -204,6 +235,18 @@ def validate_batch(
             return False
         return True
 
+    def need_kind(oid: str, kind: str, op_id: str, t: str, what: str = "target") -> bool:
+        if not need_object(oid, op_id, what):
+            return False
+        actual = scene.objects[oid].kind
+        if actual != kind:
+            fail(f"not_a_{kind.lower()}", f"{t} requires a {kind.lower()} {what}; '{oid}' is {actual}", op_id)
+            return False
+        return True
+
+    def grow(oid: str, factor: float) -> None:
+        scene.objects[oid].vertices = int(scene.objects[oid].vertices * factor)
+
     for op in batch.operations:
         oid_ = op.operation_id
         t = op.operation_type
@@ -217,7 +260,12 @@ def validate_batch(
         seen_ops.add(oid_)
         target = op.target_object_id
 
-        if t in CREATE_PRIMITIVE_TYPES:
+        if t in MESH_ONLY_TYPES:
+            assert target is not None
+            if not need_kind(target, "MESH", oid_, t):
+                continue
+
+        if t in CREATE_PRIMITIVE_TYPES or t in ("add_camera", "add_light"):
             assert target is not None
             if target in scene.objects:
                 fail("object_exists", f"object '{target}' already exists", oid_)
@@ -225,12 +273,13 @@ def validate_batch(
             ok = True
             if p.parent_id is not None:
                 ok &= need_object(p.parent_id, oid_, "parent")
-            if p.collection_id is not None:
+            if getattr(p, "collection_id", None) is not None:
                 ok &= need_collection(p.collection_id, oid_)
-            if p.material_id is not None:
+            if getattr(p, "material_id", None) is not None:
                 ok &= need_material(p.material_id, oid_)
             verts = _primitive_vertices(op)
-            scene.add(target, p.parent_id if ok else None, verts)
+            kind = {"add_camera": "CAMERA", "add_light": "LIGHT"}.get(t, "MESH")
+            scene.add(target, p.parent_id if ok else None, verts, kind)
             new_objects += 1
             touched.add(target)
 
@@ -302,13 +351,109 @@ def validate_batch(
             need_material(p.material_id, oid_)
             touched.add(target)
 
+        elif t in ("update_camera", "update_light"):
+            assert target is not None
+            if need_kind(target, "CAMERA" if t == "update_camera" else "LIGHT", oid_, t):
+                touched.add(target)
+
+        elif t in ("assign_texture", "remove_texture"):
+            need_material(p.material_id, oid_)
+
+        elif t == "set_world_background":
+            pass
+
+        elif t in BOOLEAN_TYPES:
+            assert target is not None
+            operand = p.operand_id
+            if operand == target:
+                fail("invalid_operand", f"{t}: an object cannot be combined with itself", oid_)
+                continue
+            if not need_kind(operand, "MESH", oid_, t, "operand"):
+                continue
+            if not p.keep_operand:
+                if operand in scene.ancestors(target):
+                    fail("invalid_operand", f"{t}: operand '{operand}' is a parent of '{target}'; keep it", oid_)
+                    continue
+                kids = scene.descendants(operand)
+                if kids:
+                    fail(
+                        "has_children",
+                        f"operand '{operand}' has children ({', '.join(sorted(kids)[:5])}); "
+                        "unparent them first or set keep_operand=true",
+                        oid_,
+                    )
+                    continue
+            scene.objects[target].vertices += scene.objects[operand].vertices
+            if not p.keep_operand:
+                scene.remove(operand)
+                touched.discard(operand)
+            touched.add(target)
+
+        elif t in ("extrude", "inset"):
+            assert target is not None
+            grow(target, 2)
+            touched.add(target)
+
+        elif t in ("subdivide", "mirror", "array", "remesh", "decimate"):
+            assert target is not None
+            if t == "subdivide":
+                if p.levels > limits.max_subdivision_levels:
+                    fail(
+                        "limit_subdivision",
+                        f"subdivision levels {p.levels} exceeds limit {limits.max_subdivision_levels}",
+                        oid_,
+                    )
+                grow(target, 4**p.levels)
+            elif t == "mirror":
+                if p.mirror_object_id is not None and not need_object(p.mirror_object_id, oid_, "mirror"):
+                    continue
+                grow(target, 2 ** len(p.axes))
+            elif t == "array":
+                if p.count > limits.max_array_count:
+                    fail("limit_array", f"array count {p.count} exceeds limit {limits.max_array_count}", oid_)
+                grow(target, p.count)
+            elif t == "decimate":
+                grow(target, p.ratio)
+            touched.add(target)
+
+        elif t == "join_objects":
+            assert target is not None
+            ok = True
+            for other in p.object_ids:
+                if other == target:
+                    fail("invalid_operand", "join_objects: object_ids must not include the target", oid_)
+                    ok = False
+                elif not need_kind(other, "MESH", oid_, t, "joined"):
+                    ok = False
+                elif other in scene.ancestors(target):
+                    fail("invalid_operand", f"join_objects: '{other}' is a parent of '{target}'", oid_)
+                    ok = False
+            if not ok:
+                continue
+            for other in p.object_ids:
+                for child in list(scene.objects[other].children):
+                    scene.set_parent(child, target)
+                scene.objects[target].vertices += scene.objects[other].vertices
+                scene.remove(other)
+                touched.discard(other)
+            touched.add(target)
+
+        elif t == "separate_objects":
+            assert target is not None
+            clash = [n for n in p.new_object_ids if n in scene.objects]
+            if clash:
+                fail("object_exists", f"object '{clash[0]}' already exists", oid_)
+                continue
+            src = scene.objects[target]
+            share = max(src.vertices // (len(p.new_object_ids) + 1), 1)
+            for new_id in p.new_object_ids:
+                scene.add(new_id, src.parent, share)
+                new_objects += 1
+                touched.add(new_id)
+            touched.add(target)
+
         elif t in ("bevel", "solidify"):
             assert target is not None
-            if not need_object(target, oid_):
-                continue
-            if scene.objects[target].kind != "MESH":
-                fail("not_a_mesh", f"{t} requires a mesh object; '{target}' is {scene.objects[target].kind}", oid_)
-                continue
             if t == "bevel":
                 if p.segments > limits.max_bevel_segments:
                     fail(

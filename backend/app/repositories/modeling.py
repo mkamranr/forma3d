@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Asset, Job, OperationBatch, Project, SceneObject, SceneVersion
 
+VERSION_ASSET_KINDS = ("blend", "glb", "thumbnail", "inventory", "operations")
+
 
 class ModelingRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -62,7 +64,9 @@ class ModelingRepository:
     async def assets_for_versions(self, version_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[Asset]]:
         if not version_ids:
             return {}
-        rows = (await self.session.execute(select(Asset).where(Asset.version_id.in_(version_ids)))).scalars()
+        # Only a version's own artifacts; renders and exports made from it are listed separately.
+        stmt = select(Asset).where(Asset.version_id.in_(version_ids), Asset.asset_type.in_(VERSION_ASSET_KINDS))
+        rows = (await self.session.execute(stmt)).scalars()
         out: dict[uuid.UUID, list[Asset]] = {}
         for a in rows:
             out.setdefault(a.version_id, []).append(a)  # type: ignore[arg-type]

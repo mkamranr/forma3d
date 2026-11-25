@@ -20,7 +20,7 @@ from typing import Any, Literal
 
 from forma3d_shared.schemas.scene_object import ObjectSnapshot, SceneInventory
 
-from .inspection import Box, object_box
+from .inspection import Box, object_box, world_space
 from .modeling import Expectations
 
 Severity = Literal["error", "fixable", "warning"]
@@ -96,6 +96,11 @@ class _Checker:
     def box(self, oid: str) -> Box:
         return object_box(self.after[oid])
 
+    def solid(self, oid: str) -> bool:
+        """Physical geometry. Lights and cameras float by design and occupy no space."""
+        o = self.after.get(oid)
+        return o is not None and o.type == "MESH" and o.visible
+
     # ------------------------------------------------------------------ existence
     def existence(self) -> None:
         for oid in self.exp.created:
@@ -150,7 +155,7 @@ class _Checker:
                     want["material"] in o.material_ids,
                     Issue("material_not_assigned", "error", f"'{oid}' does not use material '{want['material']}'", oid),
                 )
-            elif oid in self.exp.created:
+            elif oid in self.exp.created and o.type == "MESH":
                 self.check(bool(o.material_ids), Issue("no_material", "warning", f"'{oid}' has no material", oid))
             if "parent" in want:
                 self.check(
@@ -224,7 +229,7 @@ class _Checker:
     def relations(self) -> None:
         for r in self.exp.relations:
             a, rel, b = r["subject"], r["relation"], r["object"]
-            if a not in self.after or b not in self.after:
+            if not (self.solid(a) and self.solid(b)):
                 continue
             A, B, o = self.box(a), self.box(b), self.after[a]
             if rel == "on_top_of":
@@ -295,7 +300,7 @@ class _Checker:
         changed = {k for k, v in self.exp.modified.items() if "position" in v or "size" in v or "rotation" in v}
         children = {k for k, o in self.after.items() if o.parent_id in changed}
         for oid in sorted(set(self.exp.created) | changed | (self.exp.affected - set(self.exp.modified)) | children):
-            if oid not in self.after or not self.after[oid].visible:
+            if not self.solid(oid):
                 continue
             o, A = self.after[oid], self.box(oid)
             self.check(
@@ -309,9 +314,9 @@ class _Checker:
                     data={"suggested_position": _shift(o, -A.min[2])},
                 ),
             )
-            if oid in related or len(self.after) == 1:
+            others = [k for k in self.after if k != oid and self.solid(k)]
+            if oid in related or not others:
                 continue  # explicit relations are checked precisely above
-            others = [k for k in self.after if k != oid and self.after[k].visible]
             touching = any(A.gap(self.box(k)) <= TOUCH_TOL for k in others)
             on_floor = abs(A.min[2]) <= TOUCH_TOL
             if touching or on_floor:
@@ -347,7 +352,7 @@ class _Checker:
 
 
 def run_qa(before: SceneInventory, after: SceneInventory, exp: Expectations) -> QAReport:
-    c = _Checker(before, after, exp)
+    c = _Checker(world_space(before), world_space(after), exp)  # plans speak world rotations
     c.existence()
     c.planned()
     c.untouched()

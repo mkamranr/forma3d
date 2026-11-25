@@ -188,3 +188,47 @@ Living record of decisions beyond `project-specification.md`. Update as phases l
   messages/edits, stale-head commit); agent `test_editing.py` (Scenarios A and B, redo, multi-selection);
   frontend `History.test.tsx`; end to end with real Blender (FakeProvider and vLLM) including a reload
   after restarting the stack.
+
+## Phase 7 — Advanced modeling and rendering
+
+- **DSL v1.0, 51 operations** (`forma3d_shared/schemas/modeling_operation.py`, still additive):
+  `create_circle` / `create_mesh` (validated index lists, ≤5000 vertices) / `create_curve` (swept to a tube
+  mesh so every modelled object stays a MESH); `extrude` / `inset` by side; `boolean_union|difference|intersect`
+  (applied via the evaluated mesh; the operand is consumed unless `keep_operand`); `subdivide`, `mirror`,
+  `array`, `remesh`, `decimate` (limits: subdivision ≤3, array ≤100, remesh density guard); `join_objects`,
+  `separate_objects` (loose parts / by material, deterministic new ids), `apply_transform`, `set_origin`;
+  `add/update_camera`, `add/update_light`, `set_world_background`; `assign_texture` / `remove_texture`;
+  materials gain emission, transmission and IOR. The validator knows object kinds (`not_a_mesh`,
+  `not_a_camera`, `not_a_light`) and checks boolean operands (`invalid_operand`, `has_children`), modifier
+  limits and join/separate ids. `HANDLERS == ALLOWED_OPERATIONS` is tested.
+- **Textures**: procedural patterns (wood, marble, noise, checker, brick, fabric, concrete, brushed metal)
+  are generated with numpy as tileable 512 px images and packed into the .blend, so they embed in GLB and
+  export with OBJ/glTF. Uploaded images are `Asset(asset_type="texture", version_id=None)`; the DSL only
+  carries `image_id`, the backend resolves it to a path + sha256 (`spec.textures`) and the worker copies
+  checksum-verified files into the job workspace, so Blender never sees user paths. Box-projected UVs
+  (meters × scale) are regenerated for touched textured objects after each batch.
+- **Derived jobs** (`BlenderJobSpec.kind = render | export`): read an immutable version, no operations, no
+  project lock, so renders/exports never block editing or chat. Outputs are `Asset` rows on the source
+  version (`render`, `export_{fmt}`) under `derived/{job_id}/`, validated (PNG header, zip, binary STL size)
+  and cached by their settings key. `max_pending_outputs` per user bounds the queue.
+- **Renders**: Cycles CPU with three profiles; uses the requested camera, else the active scene camera,
+  else an auto-framed one; adds a studio rig only when the scene has no lights; honours the world
+  background. Thumbnails also respect user lights.
+- **Agents**: plans can `cut_into` a part (compiled to an unparented cutter + `boolean_difference`; QA
+  expects the cutter gone), add `light` parts, and give materials `texture` / `emission` / `transmission`.
+  QA ignores non-mesh objects for support/contacts. `export` takes a format; the new `render` intent starts a
+  render job from chat (`metadata.output_job_id`, polled by the chat chip).
+- **World-space rotations**: the inventory's `rotation` is local to the parent (what `rotate_object` and the
+  UI edit) while `location` is world space. Inspection and QA compose the parent chain into world rotations,
+  and the compiler converts a planned world rotation into a local one for parented objects. Found by the
+  office chair end to end (casters hang under rotated star legs); the test simulator now models Blender's
+  keep-transform parenting.
+- **Frontend**: export dialog (format, unit, hidden objects) and render dialog (quality, size, camera,
+  transparent background, recent renders); chat chips with progress → download / image preview; light and
+  camera markers in the viewport (glTF punctual lights are muted, the studio lighting stays); light/camera
+  properties; glass/glow sliders; texture picker with image upload; add light / add camera tools.
+- **Tests**: shared `test_advanced_ops.py`; Blender `test_blender_advanced.py` (real Blender: booleans,
+  extrude/inset, modifiers, join/separate, curves, textures, cameras/lights, every export format, render);
+  backend `test_outputs.py`; agent `test_advanced.py` (cabinet, office chair, hole, light, glass, texture,
+  export/render intents, world rotations); frontend `Outputs.test.tsx`. End to end with real Blender
+  (FakeProvider and vLLM `agents-a1`).

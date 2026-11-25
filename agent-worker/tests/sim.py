@@ -23,10 +23,17 @@ from forma3d_shared.schemas.agent import (
 from forma3d_shared.schemas.events import JobEvent, event_stream_key
 from forma3d_shared.schemas.job import JobStartResponse
 from forma3d_shared.schemas.scene_object import SceneInventory
+from forma3d_shared.validation import BatchValidationError, validate_batch
 
+from app.agents.inspection import local_rotation, world_rotations
 from app.backend_client import BackendRejected, BackendUnavailable
 
 PID = uuid.UUID("00000000-0000-4000-8000-000000000002")
+
+
+def _world_rot(objs: dict[str, Any], oid: str) -> tuple[float, float, float]:
+    inv = SceneInventory.model_validate({"objects": [{**o, "mesh": o.get("mesh") or {}} for o in objs.values()]})
+    return world_rotations(inv)[oid]
 
 
 def _dims(t: str, p: dict[str, Any]) -> list[float]:
@@ -73,6 +80,36 @@ def simulate(inv: dict[str, Any], ops: list[dict[str, Any]]) -> dict[str, Any]:
                 "visible": True,
                 "mesh": {"vertices": 8, "edges": 12, "faces": 6, "triangles": 12},
             }
+            if p.get("parent_id") in objs:  # created in world space, then parented keeping the transform
+                world = tuple(objs[oid]["rotation"])
+                objs[oid]["rotation"] = list(local_rotation(world, _world_rot(objs, p["parent_id"])))
+        elif t == "add_light":
+            objs[oid] = {
+                "object_id": oid,
+                "name": p["name"],
+                "type": "LIGHT",
+                "parent_id": p.get("parent_id"),
+                "location": list(p.get("location", [0, 0, 3])),
+                "rotation": list(p.get("rotation") or [0, 0, 0]),
+                "dimensions": [0.0, 0.0, 0.0],
+                "material_ids": [],
+                "visible": True,
+                "light": {
+                    "light_type": p.get("light_type", "point"),
+                    "energy": p.get("energy", 500.0),
+                    "color": p.get("color", "#FFFFFF"),
+                },
+            }
+        elif t == "update_light":
+            objs[oid]["light"].update({k: p[k] for k in ("energy", "color") if p.get(k) is not None})
+        elif t in ("boolean_difference", "boolean_union", "boolean_intersect"):
+            objs[oid]["mesh"] = {**objs[oid]["mesh"], "vertices": objs[oid]["mesh"]["vertices"] + 64}
+            if not p.get("keep_operand"):
+                objs.pop(p["operand_id"], None)
+        elif t == "assign_texture":
+            mats[p["material_id"]]["texture"] = {"pattern": p.get("pattern"), "scale": p.get("scale", 1.0)}
+        elif t == "remove_texture":
+            mats[p["material_id"]]["texture"] = None
         elif t == "create_material":
             mats[p["material_id"]] = {
                 "material_id": p["material_id"],
@@ -81,10 +118,12 @@ def simulate(inv: dict[str, Any], ops: list[dict[str, Any]]) -> dict[str, Any]:
                 "metallic": p.get("metallic", 0.0),
                 "roughness": p.get("roughness", 0.5),
                 "alpha": p.get("alpha", 1.0),
+                "emission_strength": p.get("emission_strength", 0.0),
+                "transmission": p.get("transmission", 0.0),
             }
         elif t == "update_material":
             m = mats[p["material_id"]]
-            for k in ("name", "base_color", "metallic", "roughness", "alpha"):
+            for k in ("name", "base_color", "metallic", "roughness", "alpha", "emission_strength", "transmission"):
                 if p.get(k) is not None:
                     m[k] = p[k]
         elif t == "assign_material":
@@ -104,9 +143,12 @@ def simulate(inv: dict[str, Any], ops: list[dict[str, Any]]) -> dict[str, Any]:
             objs[oid]["name"] = p["name"]
         elif t == "set_visibility":
             objs[oid]["visible"] = p["visible"]
-        elif t == "parent_object":
+        elif t == "parent_object":  # keep_transform: Blender stores the rotation relative to the parent
+            world = _world_rot(objs, oid)
             objs[oid]["parent_id"] = p["parent_id"]
+            objs[oid]["rotation"] = list(local_rotation(world, _world_rot(objs, p["parent_id"])))
         elif t == "unparent_object":
+            objs[oid]["rotation"] = list(_world_rot(objs, oid))
             objs[oid]["parent_id"] = None
         elif t == "delete_object":
             for d in [oid, *descendants(oid)]:
@@ -122,6 +164,7 @@ class SimBackend:
         self.versions: list[dict[str, Any]] = []  # [{"id", "number", "inventory", "parent"}]
         self.head: int | None = None  # index into versions
         self.messages: list[tuple[str, str]] = []
+        self.batches: list[dict[str, Any]] = []
         self.jobs: dict[uuid.UUID, dict[str, Any]] = {}  # agent jobs
         self.mjobs: dict[uuid.UUID, dict[str, Any]] = {}  # modeling jobs
         self.completed: dict[uuid.UUID, AgentCompleteRequest] = {}
@@ -183,6 +226,14 @@ class SimBackend:
             return SubmitPlanResponse(modeling_job_id=attempts[body.attempt], operation_batch_id=uuid.uuid4())
         if any(m["status"] == "staged" for m in self.mjobs.values()):
             raise BackendRejected(409, {"detail": "busy", "code": "project_busy"})
+        # Like the real backend: every batch passes the shared DSL validator before "Blender".
+        try:
+            validate_batch(
+                {"schema_version": "1.0", "operations": body.operations}, SceneInventory.model_validate(self.inventory)
+            )
+        except BatchValidationError as exc:
+            raise BackendRejected(422, {"code": "invalid_batch", "issues": exc.as_dicts()}) from exc
+        self.batches.append({"operations": body.operations})
         self.submissions += 1
         mid = uuid.uuid4()
         attempts[body.attempt] = mid

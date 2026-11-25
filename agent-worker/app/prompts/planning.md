@@ -36,6 +36,19 @@ Answer with ONE JSON object:
   compute exact positions (e.g. a drawer under a top whose bounds min z = 0.72 and drawer height 0.12 ->
   drawer position z = 0.72 - 0.06 = 0.66).
 
+## Holes, lights and looks
+- Holes, slots, grooves, cut-outs: create a solid part shaped like the empty space (e.g. a cylinder for a
+  round hole, a box for a slot) with "cut_into": "<id of the part to cut>". It is subtracted from that
+  part and disappears; give it no material, parent or relations. It must overlap the part where the hole
+  goes and stick out slightly on the open side(s) (e.g. a through-hole is taller than the panel is thick).
+- Lights: {"id": "...", "action": "create", "shape": "light", "light_type": "point" | "spot" | "area" |
+  "sun", "position": [x, y, z], "energy": watts (point ~100-500, spot ~300-1000, area ~100-500; sun
+  1-5), "color": "#FFE8C8"}. No size. Spot and area lights point straight down unless you give "rotation".
+  Modify a light with its id and "energy" / "color" / "position".
+- Material looks in "materials": "texture": wood | marble | noise | checker | brick | fabric | concrete |
+  brushed_metal (a pattern in the material colour; "" removes it), "transmission": 1 for clear glass
+  (with low roughness), "emission": glow strength 1-10 (lamps, screens, neon).
+
 ## Relations
 Declare how every NEW part connects (QA measures them in the built model):
 on_top_of (its bottom rests on the object's top), under (its top touches the object's underside),
@@ -43,6 +56,7 @@ attached_to (touching, e.g. a handle on a drawer front), inside, beside.
 
 ## Materials
 - Reference materials by id: existing ones from the scene, or new ones listed in "materials" (with color).
+- Real materials: wood -> "texture": "wood"; stone/marble countertops -> "marble"; glass -> transmission 1.
 - Listing an EXISTING material id in "materials" changes it for EVERY object that uses it ("used_by").
   To change only some objects, create a NEW material and set it on just those parts (modify ... material).
 

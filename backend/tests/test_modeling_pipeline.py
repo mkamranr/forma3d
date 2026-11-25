@@ -59,9 +59,15 @@ class FakeWorker:
         scene = json.loads(json.dumps(self.scenes.get(str(spec.project_id), {"objects": [], "materials": []})))
         for op in spec.operations:
             t = op["operation_type"]
-            if t.startswith("create_") and op.get("target_object_id"):
+            if (t.startswith("create_") or t in ("add_light", "add_camera")) and op.get("target_object_id"):
+                kind = {"add_light": "LIGHT", "add_camera": "CAMERA"}.get(t, "MESH")
                 scene["objects"].append(
-                    {"object_id": op["target_object_id"], "name": op["parameters"]["name"], "mesh": {"vertices": 8}}
+                    {
+                        "object_id": op["target_object_id"],
+                        "name": op["parameters"]["name"],
+                        "type": kind,
+                        "mesh": {"vertices": 8 if kind == "MESH" else 0},
+                    }
                 )
             elif t == "create_material":
                 p = op["parameters"]

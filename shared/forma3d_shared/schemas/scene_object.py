@@ -28,6 +28,33 @@ class MeshStats(_Snapshot):
     triangles: int = 0
 
 
+class CameraSnapshot(_Snapshot):
+    lens: float = 50.0
+    active: bool = False
+
+
+class LightSnapshot(_Snapshot):
+    light_type: str = "point"
+    color: str = "#FFFFFF"
+    energy: float = 0.0
+    radius: float = 0.0
+    spot_angle: Optional[float] = None
+
+
+class TextureSnapshot(_Snapshot):
+    pattern: Optional[str] = None
+    image_id: Optional[str] = None
+    color_a: Optional[str] = None
+    color_b: Optional[str] = None
+    scale: float = 1.0
+    rotation: float = 0.0
+
+
+class WorldSnapshot(_Snapshot):
+    color: str = "#202630"
+    strength: float = 1.0
+
+
 class ObjectSnapshot(_Snapshot):
     object_id: str
     name: str
@@ -43,6 +70,8 @@ class ObjectSnapshot(_Snapshot):
     material_ids: list[str] = Field(default_factory=list)
     modifiers: list[ModifierSnapshot] = Field(default_factory=list)
     mesh: MeshStats = Field(default_factory=MeshStats)
+    camera: Optional[CameraSnapshot] = None
+    light: Optional[LightSnapshot] = None
     created_version: Optional[int] = None
     last_modified_version: Optional[int] = None
 
@@ -54,6 +83,11 @@ class MaterialSnapshot(_Snapshot):
     metallic: float = 0.0
     roughness: float = 0.5
     alpha: float = 1.0
+    emission_color: Optional[str] = None
+    emission_strength: float = 0.0
+    transmission: float = 0.0
+    ior: float = 1.45
+    texture: Optional[TextureSnapshot] = None
 
 
 class CollectionSnapshot(_Snapshot):
@@ -68,6 +102,7 @@ class SceneInventory(_Snapshot):
     objects: list[ObjectSnapshot] = Field(default_factory=list)
     materials: list[MaterialSnapshot] = Field(default_factory=list)
     collections: list[CollectionSnapshot] = Field(default_factory=list)
+    world: Optional[WorldSnapshot] = None
 
     def object_map(self) -> dict[str, ObjectSnapshot]:
         return {o.object_id: o for o in self.objects}

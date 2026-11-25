@@ -4,9 +4,12 @@
             --python bl_runtime/main.py -- --job /work/<job_id>/runtime_job.json
 
 runtime_job.json (written by the trusted worker service):
-    {"project_id", "target_version_number", "source_blend": abs path | null,
-     "output_dir": abs path, "operations": [...], "render_thumbnail": bool,
-     "thumbnail_size": int, "limits": {"max_vertices_per_object", "max_scene_vertices"}}
+    {"kind": "modeling" | "render" | "export", "project_id", "target_version_number",
+     "source_blend": abs path | null, "output_dir": abs path, "operations": [...],
+     "textures": {image_id: abs path}, "render_thumbnail": bool, "thumbnail_size": int,
+     "limits": {"max_vertices_per_object", "max_scene_vertices"},
+     "render": {...} + "profiles": {...} (render jobs), "export": {...} + "export_filename",
+     "unit_scale" (export jobs)}
 
 Writes <output_dir>/result.json. Progress lines on stdout: `F3D_EVENT {json}`.
 Exit codes: 0 success, 3 operation/validation failure, 4 unexpected crash.
@@ -24,7 +27,14 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import bpy  # noqa: E402
-from bl_runtime import export_manager, mesh_validator, render_manager, scene_inspector, scene_manager  # noqa: E402
+from bl_runtime import (  # noqa: E402
+    export_manager,
+    mesh_validator,
+    render_manager,
+    scene_inspector,
+    scene_manager,
+    texture_manager,
+)
 from bl_runtime.context import RuntimeContext  # noqa: E402
 from bl_runtime.operation_executor import ExecutionFailed, execute  # noqa: E402
 
@@ -55,8 +65,14 @@ def run(job_path: str) -> int:
     workspace = os.path.dirname(os.path.realpath(job_path))
     out_dir = job["output_dir"]
     source = job.get("source_blend")
-    if not _inside(out_dir, workspace) or (source and not _inside(source, workspace)):
+    textures = job.get("textures") or {}
+    if (
+        not _inside(out_dir, workspace)
+        or (source and not _inside(source, workspace))
+        or any(not _inside(t, workspace) for t in textures.values())
+    ):
         raise SystemExit("job paths must be inside the job workspace")
+    kind = job.get("kind", "modeling")
     os.makedirs(out_dir, exist_ok=True)
     result: dict = {"success": False, "blender_version": bpy.app.version_string, "timings_ms": {}}
 
@@ -77,7 +93,43 @@ def run(job_path: str) -> int:
         scene_manager.init_empty_scene()
     timed("load", t0)
 
-    ctx = RuntimeContext(project_id=str(job["project_id"]), version_number=int(job["target_version_number"]))
+    if kind == "render":
+        t0 = time.monotonic()
+        emit("rendering", "Rendering image")
+        try:
+            result["render"] = render_manager.render_image(
+                os.path.join(out_dir, "render.png"), job["render"], job["profiles"]
+            )
+        except render_manager.RenderError as exc:
+            result.update(error_code=exc.code, error_message=exc.message)
+            return finish(EXIT_FAILED)
+        timed("render", t0)
+        result.update(success=True, outputs=["render.png"])
+        emit("done", "Render finished")
+        return finish(EXIT_OK)
+    if kind == "export":
+        t0 = time.monotonic()
+        settings = job["export"]
+        emit("exporting", f"Exporting {settings['format'].upper()}")
+        export_manager.export_file(
+            out_dir,
+            settings["format"],
+            float(job.get("unit_scale", 1.0)),
+            bool(settings.get("include_hidden")),
+            job["export_filename"],
+        )
+        timed("export", t0)
+        result.update(success=True, outputs=[job["export_filename"]])
+        emit("done", "Export finished")
+        return finish(EXIT_OK)
+
+    limits = job.get("limits") or {}
+    ctx = RuntimeContext(
+        project_id=str(job["project_id"]),
+        version_number=int(job["target_version_number"]),
+        limits=limits,
+        textures=textures,
+    )
     ops = job["operations"]
     emit("executing", f"Executing {len(ops)} operations", total=len(ops))
     t0 = time.monotonic()
@@ -93,10 +145,10 @@ def run(job_path: str) -> int:
         result.update(failed_operation_id=exc.operation_id, error_code=exc.code, error_message=exc.message)
         emit("failed", exc.message, operation_id=exc.operation_id)
         return finish(EXIT_FAILED)
+    texture_manager.finalize_uvs(ctx)
     timed("execute", t0)
 
     emit("validating", "Running structural mesh checks")
-    limits = job.get("limits") or {}
     errors, warnings = mesh_validator.validate_meshes(
         int(limits.get("max_vertices_per_object", 200_000)), int(limits.get("max_scene_vertices", 1_000_000))
     )

@@ -54,12 +54,25 @@ const FIELD_LABELS: Record<string, string> = {
   metallic: 'metallic',
   roughness: 'roughness',
   alpha: 'opacity',
+  vertices: 'vertices',
+  camera: 'camera',
+  light: 'light',
+  emission_color: 'glow colour',
+  emission_strength: 'glow',
+  transmission: 'glass',
+  ior: 'IOR',
+  texture: 'texture',
 }
 
 function fmt(v: unknown): string {
   if (Array.isArray(v)) return v.every((x) => typeof x === 'number') ? v.map((x) => +(x as number).toFixed(3)).join(' × ') : v.join(', ') || '—'
   if (v === null || v === undefined || v === '') return '—'
   if (typeof v === 'number') return String(+v.toFixed(3))
+  if (typeof v === 'object')
+    return Object.entries(v as Record<string, unknown>)
+      .filter(([, x]) => x !== null && x !== undefined)
+      .map(([k, x]) => `${k.replace(/_/g, ' ')} ${fmt(x)}`)
+      .join(', ') || '—'
   return String(v)
 }
 

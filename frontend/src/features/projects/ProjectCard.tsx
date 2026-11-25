@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Project } from '../../types/api'
 import { relativeTime } from '../../utils/format'
+import { useAssetObjectUrl } from '../../components/versions/HistoryStrip'
 
 type Props = {
   project: Project
@@ -30,13 +31,18 @@ export function ProjectCard({ project, onRename, onDuplicate, onToggleArchive, o
     fn(project)
   }
   const archived = project.status === 'archived'
+  // The thumbnail route needs the bearer token, so it is fetched and shown via an object URL;
+  // the version count busts the cache when a new version replaces the thumbnail.
+  const { objectUrl: thumb } = useAssetObjectUrl(
+    project.thumbnail_url ? `${project.thumbnail_url}?v=${project.version_count}` : null,
+  )
 
   return (
     <article className="group relative overflow-hidden rounded-xl border border-line bg-white transition-shadow hover:shadow-[0_8px_24px_#20263314]">
       <Link to={`/projects/${project.id}`} className="block text-inherit no-underline" aria-label={`Open ${project.name}`}>
         <div className="relative grid aspect-[16/10] place-items-center bg-[radial-gradient(circle_at_50%_35%,#2c3442,#202630_70%)]">
-          {project.thumbnail_url ? (
-            <img src={project.thumbnail_url} alt="" className="h-full w-full object-cover" />
+          {thumb ? (
+            <img src={thumb} alt="" className="h-full w-full object-cover" />
           ) : (
             <Cuboid size={42} strokeWidth={1.4} className="text-[#7f8aa0] transition-transform group-hover:scale-105" />
           )}

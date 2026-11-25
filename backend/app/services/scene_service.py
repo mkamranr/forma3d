@@ -35,6 +35,8 @@ PRIMITIVE_DEFAULTS: dict[str, tuple[str, str, dict[str, Any]]] = {
     "cone": ("create_cone", "Cone", {"radius_bottom": 0.25, "depth": 0.5}),
     "plane": ("create_plane", "Plane", {"size": 1.0}),
     "torus": ("create_torus", "Torus", {"major_radius": 0.3, "minor_radius": 0.08}),
+    "light": ("add_light", "Light", {"light_type": "point", "energy": 300.0}),
+    "camera": ("add_camera", "Camera", {"look_at": [0.0, 0.0, 0.5], "lens": 50.0, "set_active": True}),
 }
 
 
@@ -91,7 +93,11 @@ class SceneService:
         head = await self.session.get(SceneVersion, project.current_version_id) if project.current_version_id else None
         stmt = (
             select(Job)
-            .where(Job.project_id == project.id, Job.status.in_(("queued", "running")))
+            .where(
+                Job.project_id == project.id,
+                Job.status.in_(("queued", "running")),
+                Job.job_type.in_(("agent", "modeling")),  # renders/exports never block editing
+            )
             # A chat turn owns its modeling job: resume the agent job, it carries the reply.
             .order_by((Job.job_type == "agent").desc(), Job.created_at.desc())
             .limit(1)
@@ -106,7 +112,12 @@ class SceneService:
         op_type, default_name, params = PRIMITIVE_DEFAULTS[body.kind]
         oid = unique_id(body.kind, {o.object_id for o in inv.objects})
         name = body.name or default_name
-        params = {**params, "name": name, "location": list(body.location)}
+        location = list(body.location)
+        if body.kind == "light" and "location" not in body.model_fields_set:
+            location = [1.5, -1.5, 2.5]
+        if body.kind == "camera" and "location" not in body.model_fields_set:
+            location = [3.0, -3.0, 2.0]
+        params = {**params, "name": name, "location": location}
         return await self._submit(user_id, project, _batch(f"Add {name}", [_op(op_type, oid, **params)]))
 
     async def edit_object(self, user_id: uuid.UUID, project_id: uuid.UUID, object_id: str, patch: ObjectPatch):
@@ -134,6 +145,14 @@ class SceneService:
         if patch.material_id is not None:
             ops.append(_op("assign_material", object_id, material_id=patch.material_id))
             changes.append(f"material set to {patch.material_id}")
+        light = {k: v for k, v in (("energy", patch.light_energy), ("color", patch.light_color)) if v is not None}
+        if light:
+            ops.append(_op("update_light", object_id, **light))
+            changes.append("light changed")
+        camera = {k: v for k, v in (("lens", patch.camera_lens), ("set_active", patch.active_camera)) if v is not None}
+        if camera:
+            ops.append(_op("update_camera", object_id, **camera))
+            changes.append("camera changed")
         if not ops:
             raise AppError("Nothing to change", code="no_changes", status_code=422)
         summary = f"{obj.name}: {', '.join(changes)}"
@@ -152,14 +171,28 @@ class SceneService:
         mat = next((m for m in (await self._inventory(project)).materials if m.material_id == material_id), None)
         if mat is None:
             raise NotFoundError("Material not found in the current version")
-        params = patch.model_dump(exclude_none=True)
-        if not params:
+        params = patch.model_dump(exclude_none=True, exclude={"texture", "texture_image_id", "texture_scale"})
+        if params.get("emission_strength") and not mat.emission_color:  # glow in the material's own colour
+            params["emission_color"] = params.get("base_color", mat.base_color)
+        ops = [_op("update_material", material_id=material_id, **params)] if params else []
+        scale = patch.texture_scale or (mat.texture.scale if mat.texture else None) or 1.0
+        if patch.texture_image_id:
+            ops.append(_op("assign_texture", material_id=material_id, image_id=patch.texture_image_id, scale=scale))
+        elif patch.texture:
+            ops.append(_op("assign_texture", material_id=material_id, pattern=patch.texture, scale=scale))
+        elif patch.texture == "" and mat.texture:
+            ops.append(_op("remove_texture", material_id=material_id))
+        elif patch.texture_scale is not None and mat.texture:  # rescale the current texture
+            t = mat.texture
+            src = (
+                {"image_id": t.image_id}
+                if t.image_id
+                else {"pattern": t.pattern, **{k: v for k, v in (("color_a", t.color_a), ("color_b", t.color_b)) if v}}
+            )
+            ops.append(_op("assign_texture", material_id=material_id, scale=scale, **src))
+        if not ops:
             raise AppError("Nothing to change", code="no_changes", status_code=422)
-        return await self._submit(
-            user_id,
-            project,
-            _batch(f"Update material {mat.name}", [_op("update_material", material_id=material_id, **params)]),
-        )
+        return await self._submit(user_id, project, _batch(f"Update material {mat.name}", ops))
 
     async def give_object_material(
         self, user_id: uuid.UUID, project_id: uuid.UUID, object_id: str, body: ObjectMaterial

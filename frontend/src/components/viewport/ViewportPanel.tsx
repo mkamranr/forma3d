@@ -1,7 +1,7 @@
 import { Canvas } from '@react-three/fiber'
 import {
-  Axis3D, Box, Cuboid, Expand, Grid3X3, Layers3, Loader2, Maximize2, MessageSquareText, MousePointer2,
-  PanelRightClose, Scan, Shrink, Square, X, ZoomIn, ZoomOut,
+  Axis3D, Box, Cuboid, Expand, Grid3X3, Layers3, Lightbulb, Loader2, Maximize2, MessageSquareText, MousePointer2,
+  PanelRightClose, Scan, Shrink, Square, Video, X, ZoomIn, ZoomOut,
 } from 'lucide-react'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useModel, useModelingAction } from '../../features/modeling/hooks'
@@ -18,6 +18,7 @@ const NEXT_SHADING: Record<Shading, Shading> = { material: 'solid', solid: 'wire
 const PRESETS: [CameraPreset, string][] = [['iso', 'Iso'], ['front', 'Front'], ['right', 'Right'], ['back', 'Back'], ['left', 'Left'], ['top', 'Top']]
 const PRIMITIVE_LABEL: Record<PrimitiveKind, string> = {
   cube: 'Add cube', sphere: 'Add sphere', cylinder: 'Add cylinder', cone: 'Add cone', plane: 'Add plane', torus: 'Add torus',
+  light: 'Add light', camera: 'Add camera',
 }
 
 export function ViewportPanel() {
@@ -85,6 +86,8 @@ export function ViewportPanel() {
           <button className="tool-btn" disabled={busy} onClick={() => add('cube')} title="Add cube"><Square size={15} /></button>
           <button className="tool-btn" disabled={busy} onClick={() => add('sphere')} title="Add sphere"><CircleShape /></button>
           <button className="tool-btn" disabled={busy} onClick={() => add('cylinder')} title="Add cylinder"><Cuboid size={16} /></button>
+          <button className="tool-btn" disabled={busy || !version} onClick={() => add('light')} title="Add light"><Lightbulb size={15} /></button>
+          <button className="tool-btn" disabled={busy || !version} onClick={() => add('camera')} title="Add camera (aimed at the model)"><Video size={15} /></button>
         </div>
         <div className="tool-group right-tools">
           <button className="tool-btn tool-text" onClick={() => s.setShading(NEXT_SHADING[s.shading])} title="Shading mode">

@@ -27,6 +27,62 @@ def rotation_matrix(deg: Vec3) -> list[list[float]]:
     ]
 
 
+def _matmul(a: list[list[float]], b: list[list[float]]) -> list[list[float]]:
+    return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+
+
+def _transpose(m: list[list[float]]) -> list[list[float]]:
+    return [list(r) for r in zip(*m, strict=True)]
+
+
+def matrix_to_euler(m: list[list[float]]) -> Vec3:
+    """Inverse of `rotation_matrix` (Blender XYZ Euler, degrees), with the usual gimbal handling."""
+    sy = max(-1.0, min(1.0, -m[2][0]))
+    y = math.asin(sy)
+    if abs(sy) < 0.999999:
+        x = math.atan2(m[2][1], m[2][2])
+        z = math.atan2(m[1][0], m[0][0])
+    else:  # gimbal lock: fold X into Z
+        x = 0.0
+        z = math.atan2(-m[0][1], m[1][1])
+    return tuple(round(math.degrees(a), 4) + 0.0 for a in (x, y, z))  # type: ignore[return-value]
+
+
+def world_rotations(inv: SceneInventory) -> dict[str, Vec3]:
+    """World rotation of every object. The inventory's `rotation` is local to the parent (it is what
+    `rotate_object` and the UI edit) while `location` is world space; the agents reason in world space."""
+    objs = inv.object_map()
+    cache: dict[str, list[list[float]]] = {}
+
+    def world(oid: str, depth: int = 0) -> list[list[float]]:
+        if oid not in cache:
+            o = objs[oid]
+            local = rotation_matrix(tuple(o.rotation))  # type: ignore[arg-type]
+            parent = o.parent_id if o.parent_id in objs and depth < 64 else None
+            cache[oid] = _matmul(world(parent, depth + 1), local) if parent else local
+        return cache[oid]
+
+    return {oid: matrix_to_euler(world(oid)) if objs[oid].parent_id else tuple(objs[oid].rotation) for oid in objs}  # type: ignore[misc]
+
+
+def world_space(inv: SceneInventory) -> SceneInventory:
+    """Copy of the inventory with world rotations (identity when nothing is parented under a rotation)."""
+    rots = world_rotations(inv)
+    if all(_angles_equal(rots[o.object_id], o.rotation) for o in inv.objects):
+        return inv
+    objects = [o.model_copy(update={"rotation": list(rots[o.object_id])}) for o in inv.objects]
+    return inv.model_copy(update={"objects": objects})
+
+
+def local_rotation(world_deg: Vec3, parent_world_deg: Vec3) -> Vec3:
+    """Local Euler that gives `world_deg` under a parent whose world rotation is `parent_world_deg`."""
+    return matrix_to_euler(_matmul(_transpose(rotation_matrix(parent_world_deg)), rotation_matrix(world_deg)))
+
+
+def _angles_equal(a: Any, b: Any) -> bool:
+    return all(abs(((x - y + 180) % 360) - 180) < 1e-3 for x, y in zip(a, b, strict=True))
+
+
 @dataclass(frozen=True)
 class Box:
     min: Vec3
@@ -72,6 +128,7 @@ def _r(v: Any, nd: int = 4) -> Any:
 
 
 def scene_report(inv: SceneInventory) -> dict[str, Any]:
+    inv = world_space(inv)
     """Token-lean description used by every LLM agent: ids, hierarchy, sizes, positions, world
     bounds (so the model can place parts flush against each other) and materials with use counts."""
     users: dict[str, list[str]] = {}
@@ -80,6 +137,22 @@ def scene_report(inv: SceneInventory) -> dict[str, Any]:
             users.setdefault(m, []).append(o.object_id)
     objects = []
     for o in inv.objects:
+        if o.type in ("LIGHT", "CAMERA"):
+            extra = o.light.model_dump(exclude_none=True) if o.light else {}
+            if o.camera:
+                extra = {"lens_mm": _r(o.camera.lens, 1), **({"active": True} if o.camera.active else {})}
+            objects.append(
+                {
+                    "id": o.object_id,
+                    "name": o.name,
+                    "type": o.type.lower(),
+                    "position": _r(list(o.location)),
+                    **({"rotation": _r(list(o.rotation), 2)} if any(abs(a) > 1e-6 for a in o.rotation) else {}),
+                    **({"parent": o.parent_id} if o.parent_id else {}),
+                    **{k: _r(v) for k, v in extra.items()},
+                }
+            )
+            continue
         box = object_box(o)
         objects.append(
             {
@@ -104,13 +177,17 @@ def scene_report(inv: SceneInventory) -> dict[str, Any]:
             "metallic": _r(m.metallic, 2),
             "roughness": _r(m.roughness, 2),
             **({"alpha": _r(m.alpha, 2)} if m.alpha < 1 else {}),
+            **({"texture": m.texture.pattern or "image"} if m.texture else {}),
+            **({"emission": _r(m.emission_strength, 2)} if m.emission_strength > 0 else {}),
+            **({"transmission": _r(m.transmission, 2)} if m.transmission > 0 else {}),
             "used_by": users.get(m.material_id, []),
         }
         for m in inv.materials
     ]
     report: dict[str, Any] = {"objects": objects, "materials": materials}
-    if inv.objects:
-        boxes = [object_box(o) for o in inv.objects]
+    meshes = [o for o in inv.objects if o.type == "MESH"]
+    if meshes:
+        boxes = [object_box(o) for o in meshes]
         report["scene_bounds"] = {
             "min": _r([min(b.min[i] for b in boxes) for i in range(3)]),
             "max": _r([max(b.max[i] for b in boxes) for i in range(3)]),

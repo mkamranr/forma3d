@@ -13,7 +13,7 @@ AGENT_JOB_STREAM = "jobs:agent"
 AGENT_JOB_GROUP = "agent-workers"
 
 #: Turn intents. Version management (undo / redo / restore) is handled without Blender.
-Intent = Literal["modeling", "question", "clarify", "export", "undo", "redo", "restore"]
+Intent = Literal["modeling", "question", "clarify", "export", "render", "undo", "redo", "restore"]
 
 
 class AgentJobSpec(BaseModel):

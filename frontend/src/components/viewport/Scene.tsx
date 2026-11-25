@@ -32,8 +32,39 @@ export function ownerId(object: THREE.Object3D | null): string | null {
   return null
 }
 
+/** Clone, remembering the authored emissive (glow materials) so selection tint can be undone. */
 function cloneMaterial(m: THREE.Material | THREE.Material[]) {
-  return Array.isArray(m) ? m.map((x) => x.clone()) : m.clone()
+  const one = (x: THREE.Material) => {
+    const c = x.clone()
+    const std = c as THREE.MeshStandardMaterial
+    if (std.emissive) c.userData.f3dEmissive = { color: std.emissive.clone(), intensity: std.emissiveIntensity }
+    return c
+  }
+  return Array.isArray(m) ? m.map(one) : one(m)
+}
+
+const MARKER = '__f3d_marker'
+const LIGHT_GEOMETRY = new THREE.OctahedronGeometry(0.05)
+// A small frustum: apex at the camera, opening along its view direction (-Z).
+const CAMERA_GEOMETRY = new THREE.ConeGeometry(0.06, 0.12, 4).rotateX(Math.PI / 2).rotateZ(Math.PI / 4).translate(0, 0, -0.06)
+const MARKER_COLORS = { LIGHT: '#ffd36b', CAMERA: '#9fd3ff', selected: '#8b9cfb' }
+
+/** Lights and cameras have no mesh: give them a clickable marker under their glTF node. */
+function ensureMarker(node: THREE.Object3D, type: 'LIGHT' | 'CAMERA'): THREE.Mesh {
+  let host: THREE.Object3D = node
+  node.traverse((o) => {
+    if (host === node && ((o as THREE.Light).isLight || (o as THREE.Camera).isCamera)) host = o
+  })
+  const existing = host.getObjectByName(MARKER) as THREE.Mesh | undefined
+  if (existing) return existing
+  const marker = new THREE.Mesh(
+    type === 'LIGHT' ? LIGHT_GEOMETRY : CAMERA_GEOMETRY,
+    new THREE.MeshBasicMaterial({ color: MARKER_COLORS[type], wireframe: type === 'CAMERA' }),
+  )
+  marker.name = MARKER
+  marker.userData.f3dMarker = true
+  host.add(marker)
+  return marker
 }
 
 function eachMaterial(m: THREE.Material | THREE.Material[], fn: (m: THREE.Material) => void) {
@@ -49,6 +80,8 @@ function prepare(gltf: GLTF) {
   root.traverse((o) => {
     const id = o.userData?.[OBJECT_ID_KEY]
     if (typeof id === 'string' && !nodes.has(id)) nodes.set(id, o)
+    // Blender light power (W) does not map to three's units; the viewport keeps its studio lighting.
+    if ((o as THREE.Light).isLight) (o as THREE.Light).intensity = 0
     if ((o as THREE.Mesh).isMesh) {
       const mesh = o as THREE.Mesh
       mesh.castShadow = true
@@ -96,16 +129,31 @@ function Model({ gltf, resetKey, objects, selectedId, selectedIds, shading, tool
         m.visible = visible
         const std = m as THREE.MeshStandardMaterial
         if (std.emissive) {
-          std.emissive.copy(selected ? SELECT_TINT : new THREE.Color(0, 0, 0))
-          std.emissiveIntensity = selected ? 0.08 : 0 // subtle: keep the real material readable
+          const authored = m.userData.f3dEmissive as { color: THREE.Color; intensity: number } | undefined
+          if (selected) {
+            std.emissive.copy(SELECT_TINT)
+            std.emissiveIntensity = 0.08 // subtle: keep the real material readable
+          } else {
+            std.emissive.copy(authored?.color ?? new THREE.Color(0, 0, 0))
+            std.emissiveIntensity = authored?.intensity ?? 0
+          }
         } else if ((m as THREE.MeshBasicMaterial).color) {
           ;(m as THREE.MeshBasicMaterial).color.set(selected ? '#8b9cfb' : '#aeb8c8')
         }
       })
     }
+    for (const [id, node] of prepared.nodes) {
+      const obj = objects.get(id)
+      if (obj?.type !== 'LIGHT' && obj?.type !== 'CAMERA') continue
+      const marker = ensureMarker(node, obj.type)
+      marker.visible = obj.visible
+      ;(marker.material as THREE.MeshBasicMaterial).color.set(selectedIds.includes(id) ? MARKER_COLORS.selected : MARKER_COLORS[obj.type])
+    }
   }, [prepared, objects, selectedIds, shading])
 
   const selectedNode = selectedId ? prepared.nodes.get(selectedId) ?? null : null
+  const selectedIsMesh = !!selectedId && (objects.get(selectedId)?.type ?? 'MESH') === 'MESH'
+  const gizmo = tool === 'move' || (tool === 'scale' && selectedIsMesh) // lights/cameras only move
   const box = useMemo(() => new THREE.Box3Helper(new THREE.Box3(), new THREE.Color('#8b9cfb')), [])
   useLayoutEffect(() => {
     box.visible = !!selectedNode
@@ -148,7 +196,7 @@ function Model({ gltf, resetKey, objects, selectedId, selectedIds, shading, tool
     <>
       <primitive object={prepared.root} onClick={handleClick} />
       <primitive object={box} />
-      {selectedNode && (tool === 'move' || tool === 'scale') && objects.get(selectedId!)?.visible !== false && (
+      {selectedNode && gizmo && objects.get(selectedId!)?.visible !== false && (
         <TransformControls
           object={selectedNode}
           mode={tool === 'move' ? 'translate' : 'scale'}

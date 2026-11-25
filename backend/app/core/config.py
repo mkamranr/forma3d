@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     render_thumbnails: bool = True
     thumbnail_size: int = Field(default=384, ge=64, le=2048)
     job_timeout_seconds: int = Field(default=300, ge=10, le=3600)
+    # Eevee needs a GPU / OpenGL context; CPU-only containers keep it off (spec §9.6).
+    render_eevee_enabled: bool = False
+    render_timeout_seconds: int = Field(default=900, ge=10, le=3600)
+    #: queued/running renders + exports per user
+    max_pending_outputs: int = Field(default=4, ge=1, le=100)
     staging_orphan_minutes: int = 60
 
     rate_limit_auth_per_minute: int = 20

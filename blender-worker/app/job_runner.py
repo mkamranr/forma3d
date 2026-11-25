@@ -14,11 +14,19 @@ import shutil
 from collections.abc import Callable
 from pathlib import Path
 
-from forma3d_shared.schemas.job import ARTIFACT_FILENAMES, BlenderJobResult, BlenderJobSpec
+from forma3d_shared.schemas.job import (
+    ARTIFACT_FILENAMES,
+    EXPORT_FILENAMES,
+    RENDER_FILENAME,
+    RENDER_PROFILES,
+    UNIT_SCALE,
+    BlenderJobResult,
+    BlenderJobSpec,
+)
 from forma3d_shared.schemas.modeling_operation import OperationBatch
 from pydantic import ValidationError
 
-from .artifacts import ArtifactError, sha256_file, validate_outputs
+from .artifacts import ArtifactError, sha256_file, validate_derived, validate_outputs
 from .blender_runner import blender_command, redact, run_blender
 from .config import WorkerConfig
 
@@ -29,6 +37,8 @@ FRIENDLY = {
     "source_missing": "The previous version of this project could not be found.",
     "source_checksum_mismatch": "The previous version failed an integrity check.",
     "invalid_job": "The job request was invalid.",
+    "texture_missing": "A texture image used by this change could not be found.",
+    "texture_checksum_mismatch": "A texture image failed an integrity check.",
 }
 
 
@@ -91,12 +101,15 @@ def execute_job(
         # 1. Integrity + structural re-validation (defense in depth; backend already validated).
         if batch_digest(spec.operations) != spec.batch_sha256:
             raise JobError("invalid_job", "operation batch hash mismatch")
-        try:
-            OperationBatch.model_validate({"schema_version": "1.0", "operations": spec.operations})
-        except ValidationError as exc:
-            raise JobError(
-                "invalid_job", f"operation batch failed schema validation: {exc.errors()[0]['msg']}"
-            ) from exc
+        if spec.kind == "modeling":
+            try:
+                OperationBatch.model_validate({"schema_version": "1.0", "operations": spec.operations})
+            except ValidationError as exc:
+                raise JobError(
+                    "invalid_job", f"operation batch failed schema validation: {exc.errors()[0]['msg']}"
+                ) from exc
+        if spec.render is not None and max(spec.render.width, spec.render.height) > cfg.limits.max_render_size:
+            raise JobError("invalid_job", f"render size exceeds {cfg.limits.max_render_size} px")
         staging = resolve_data_path(cfg.data_root, spec.staging_dir)
 
         # 2. Isolated workspace
@@ -114,17 +127,39 @@ def execute_job(
             source_blend = workspace / "source.blend"
             shutil.copy2(src, source_blend)
 
+        # 3b. Uploaded textures (verified copies; Blender packs them into the new version)
+        textures: dict[str, str] = {}
+        if spec.textures:
+            (workspace / "textures").mkdir()
+        for tex in spec.textures:
+            src = resolve_data_path(cfg.data_root, tex.path)
+            if not src.is_file():
+                raise JobError("texture_missing")
+            if sha256_file(src) != tex.sha256:
+                raise JobError("texture_checksum_mismatch")
+            ext = src.suffix.lower() if src.suffix.lower() in (".png", ".jpg", ".jpeg") else ".png"
+            local = workspace / "textures" / f"{tex.image_id}{ext}"
+            shutil.copy2(src, local)
+            textures[str(tex.image_id)] = str(local)
+
         # 4. Runtime job file for Blender
         job_file = workspace / "runtime_job.json"
         job_file.write_text(
             json.dumps(
                 {
+                    "kind": spec.kind,
                     "project_id": str(spec.project_id),
                     "target_version_number": spec.target_version_number,
                     "source_blend": str(source_blend) if source_blend else None,
                     "output_dir": str(workspace / "out"),
                     "operations": spec.operations,
-                    "render_thumbnail": spec.render_thumbnail,
+                    "textures": textures,
+                    "render": spec.render.model_dump() if spec.render else None,
+                    "profiles": RENDER_PROFILES,
+                    "export": spec.export.model_dump() if spec.export else None,
+                    "export_filename": EXPORT_FILENAMES[spec.export.format] if spec.export else None,
+                    "unit_scale": UNIT_SCALE[spec.export.unit] if spec.export else 1.0,
+                    "render_thumbnail": spec.render_thumbnail and spec.kind == "modeling",
                     "thumbnail_size": min(spec.thumbnail_size, cfg.limits.max_thumbnail_size),
                     "limits": {
                         "max_vertices_per_object": cfg.limits.max_vertices_per_object,
@@ -168,6 +203,18 @@ def execute_job(
                     runtime_result.get("failed_operation_id"),
                 )
             raise JobError("crash", f"{FRIENDLY['crash']} (exit code {run.exit_code})")
+
+        if spec.kind != "modeling":
+            filename = RENDER_FILENAME if spec.kind == "render" else EXPORT_FILENAMES[spec.export.format]  # type: ignore[union-attr]
+            try:
+                artifact = validate_derived(out_dir, filename, spec.kind, max_bytes=cfg.limits.max_output_file_bytes)
+            except ArtifactError as exc:
+                raise JobError(exc.code, exc.message) from exc
+            _publish(out_dir, staging, [filename])
+            result.success = True
+            result.artifacts = [artifact]
+            result.details = runtime_result.get("render") or {}
+            return result
 
         # 6. Validate outputs, add operations.json, publish to staging
         (out_dir / ARTIFACT_FILENAMES["operations"]).write_text(

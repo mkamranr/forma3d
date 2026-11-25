@@ -20,11 +20,13 @@ from app.repositories.modeling import ModelingRepository
 from app.repositories.projects import ProjectRepository
 from app.services.events import EventPublisher
 from app.services.locks import AdmissionGate, ProjectLock
+from app.services.output_service import texture_files
 from app.services.storage import ProjectStorage
 from forma3d_shared.constants.limits import ModelingLimits
 from forma3d_shared.schemas.job import BLENDER_JOB_STREAM, BlenderJobSpec, SourceVersion
 from forma3d_shared.schemas.scene_object import SceneInventory
 from forma3d_shared.validation import BatchValidationError, validate_batch
+from forma3d_shared.validation.validator import ValidationIssue, referenced_image_ids
 
 log = get_logger(__name__)
 
@@ -103,6 +105,18 @@ class ModelingService:
 
         try:
             validated = validate_batch(payload, inventory, limits)
+            textures, unknown = await texture_files(
+                self.session, project.id, referenced_image_ids(list(validated.canonical_operations))
+            )
+            if unknown:
+                raise BatchValidationError(
+                    [
+                        ValidationIssue(
+                            code="unknown_image", message=f"texture image '{i}' has not been uploaded to this project"
+                        )
+                        for i in unknown
+                    ]
+                )
         except BatchValidationError as exc:
             # Audit the rejection without persisting untrusted operation content.
             self.session.add(
@@ -187,6 +201,7 @@ class ModelingService:
             render_thumbnail=self.settings.render_thumbnails,
             thumbnail_size=self.settings.thumbnail_size,
             timeout_seconds=self.settings.job_timeout_seconds,
+            textures=textures,
         )
         try:
             await self.redis.xadd(BLENDER_JOB_STREAM, {"job": spec.model_dump_json()})
