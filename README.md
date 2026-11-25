@@ -101,6 +101,7 @@ Set in `.env`; the endpoint must be reachable from the `agent-worker` container:
 | `LLM_BASE_URL` | e.g. `http://10.0.0.5:8000/v1` |
 | `LLM_MODEL`, `LLM_MODEL_PLANNING` | served model name (`vllm serve <name>`); planning override optional |
 | `LLM_STRUCTURED_OUTPUT` | `json_schema` (vLLM >= 0.6 `response_format`), `guided_json` (older vLLM), `json_object`, `none` |
+| `LLM_THINKING` | `auto` / `on` / `off`: vLLM `chat_template_kwargs.enable_thinking` for reasoning models (Qwen3...); `off` is far faster |
 | `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`, `LLM_TIMEOUT_SECONDS` | sampling and limits (defaults 0.2 / 8192 / 120 s) |
 | `AGENT_MAX_RETRIES` | repair attempts when a plan fails to parse or validate (default 2) |
 

@@ -263,3 +263,20 @@ def test_provider_retries_5xx_but_not_4xx(monkeypatch):
     with pytest.raises(LLMError) as exc:
         _provider(bad).generate_text([ChatMessage("user", "x")])
     assert not exc.value.retryable and calls["n"] == 1
+
+
+@pytest.mark.parametrize("thinking,expected", [("auto", None), ("off", False), ("on", True)])
+def test_thinking_switch(thinking, expected):
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen.update(json.loads(request.content))
+        return _ok("{}")
+
+    client = httpx.Client(base_url="http://llm/v1", transport=httpx.MockTransport(handler))
+    p = OpenAICompatibleProvider("http://llm/v1", "m", thinking=thinking, client=client)
+    p.generate_structured([ChatMessage("user", "x")], {"type": "object"})
+    if expected is None:
+        assert "chat_template_kwargs" not in seen
+    else:
+        assert seen["chat_template_kwargs"] == {"enable_thinking": expected}

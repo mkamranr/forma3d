@@ -5,6 +5,11 @@ Structured output modes (LLM_STRUCTURED_OUTPUT):
 - guided_json  : vLLM `extra_body` field `guided_json` (older vLLM)
 - json_object  : `response_format={"type":"json_object"}` (JSON, no schema)
 - none         : plain text; the planner extracts/repairs JSON itself
+
+Thinking (LLM_THINKING) for reasoning models served by vLLM (Qwen3, DeepSeek-R1 distills...):
+- auto : send nothing (the chat template's default)
+- on / off : `chat_template_kwargs={"enable_thinking": ...}`. Off is much faster for planning; reasoning
+  text (if any) arrives in `reasoning_content` and is ignored either way.
 """
 
 from __future__ import annotations
@@ -33,6 +38,7 @@ class OpenAICompatibleProvider:
         timeout: float = 120.0,
         structured_output: str = "json_schema",
         retries: int = 2,
+        thinking: str = "auto",
         client: httpx.Client | None = None,
     ) -> None:
         self.model = model
@@ -40,6 +46,7 @@ class OpenAICompatibleProvider:
         self.max_tokens = max_tokens
         self.structured_output = structured_output
         self.retries = retries
+        self.thinking = thinking
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self.http = client or httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, headers=headers)
 
@@ -86,12 +93,15 @@ class OpenAICompatibleProvider:
         )
 
     def _body(self, messages: list[ChatMessage], max_tokens: int | None) -> dict[str, Any]:
-        return {
+        body: dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "temperature": self.temperature,
             "max_tokens": max_tokens or self.max_tokens,
         }
+        if self.thinking in ("on", "off"):
+            body["chat_template_kwargs"] = {"enable_thinking": self.thinking == "on"}
+        return body
 
     def generate_text(self, messages: list[ChatMessage], *, max_tokens: int | None = None) -> Completion:
         return self._post(self._body(messages, max_tokens))

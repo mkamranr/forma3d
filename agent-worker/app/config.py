@@ -23,6 +23,7 @@ class AgentConfig:
     llm_max_tokens: int = 8192
     llm_timeout_seconds: float = 120.0
     llm_structured_output: str = "json_schema"  # json_schema | guided_json | json_object | none
+    llm_thinking: str = "auto"  # auto | on | off (reasoning models via vLLM chat_template_kwargs)
     max_retries: int = 2
     modeling_wait_seconds: int = 600
 
@@ -43,6 +44,7 @@ class AgentConfig:
             llm_max_tokens=int(env("LLM_MAX_TOKENS", "8192")),
             llm_timeout_seconds=float(env("LLM_TIMEOUT_SECONDS", "120")),
             llm_structured_output=env("LLM_STRUCTURED_OUTPUT", cls.llm_structured_output).lower(),
+            llm_thinking=env("LLM_THINKING", cls.llm_thinking).lower(),
             max_retries=int(env("AGENT_MAX_RETRIES", "2")),
             modeling_wait_seconds=int(env("JOB_TIMEOUT_SECONDS", "300")) + 300,
         )
@@ -63,5 +65,6 @@ class AgentConfig:
                 max_tokens=self.llm_max_tokens,
                 timeout=self.llm_timeout_seconds,
                 structured_output=self.llm_structured_output,
+                thinking=self.llm_thinking,
             )
         raise ValueError(f"Unknown LLM_PROVIDER {self.llm_provider!r}")
