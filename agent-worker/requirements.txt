@@ -1,3 +1,10 @@
 redis==8.1.0
 httpx==0.28.1
 pydantic==2.14.4
+# LangGraph workflow + persistent checkpoints (Postgres in compose, SQLite for local dev)
+langgraph==1.2.24
+langgraph-checkpoint==4.3.2
+langgraph-checkpoint-sqlite==3.1.3
+langgraph-checkpoint-postgres==3.2.1
+psycopg[binary]==3.3.9
+psycopg-pool==3.3.3

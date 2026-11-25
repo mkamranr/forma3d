@@ -19,7 +19,7 @@ from forma3d_shared.schemas.common import ID_PATTERN
 router = APIRouter(prefix="/projects/{project_id}/conversation", tags=["conversation"])
 
 PUBLIC_METADATA = ("version_id", "version_number", "action", "error_code", "agent_job_id", "selected_object_id",
-                   "export_version_id", "export_version_number")
+                   "export_version_id", "export_version_number", "quality", "restored")
 
 
 class MessageOut(BaseModel):

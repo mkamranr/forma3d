@@ -1,5 +1,4 @@
-"""Agent worker entrypoint (`python -m app.main`). Phase 4: linear planner pipeline;
-the LangGraph multi-agent workflow replaces the runner in Phase 5."""
+"""Agent worker entrypoint (`python -m app.main`): runs the LangGraph multi-agent workflow worker."""
 
 from app.worker import main
 

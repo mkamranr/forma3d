@@ -32,6 +32,7 @@ from forma3d_shared.schemas.agent import (
     AgentJobSpec,
     AgentRunRecord,
     ChatTurn,
+    RestoreRequest,
     SubmitPlanRequest,
 )
 from forma3d_shared.schemas.events import cancel_flag_key
@@ -171,6 +172,15 @@ class ConversationService:
             )
         ).scalars()
         history = [ChatTurn(role=m.role, content=m.content[:2000]) for m in reversed(list(prior))]  # type: ignore[arg-type]
+        conversation = await self.session.get(Conversation, user_message.conversation_id)
+        numbers = (
+            await self.session.execute(
+                select(SceneVersion.version_number)
+                .where(SceneVersion.project_id == project.id, SceneVersion.status == "committed")
+                .order_by(SceneVersion.version_number.desc())
+                .limit(50)
+            )
+        ).scalars()
         return AgentContext(
             job_id=job.id,
             project_id=project.id,
@@ -181,6 +191,9 @@ class ConversationService:
             history=history,
             user_message=user_message.content,
             selected_object_id=job.payload.get("selected_object_id"),
+            thread_id=conversation.langgraph_thread_id if conversation else "",
+            head_version_id=head.id if head else None,
+            version_numbers=list(numbers),
         )
 
     async def submit_plan(self, job_id: uuid.UUID, body: SubmitPlanRequest, storage: ProjectStorage):
@@ -189,6 +202,14 @@ class ConversationService:
             raise ConflictError(f"Agent job is {job.status}", code="job_not_running")
         if await self.redis.exists(cancel_flag_key(job.id)):
             raise ConflictError("The request was cancelled", code="cancelled")
+        attempts: dict[str, str] = dict(job.payload.get("attempts") or {})
+        if str(body.attempt) in attempts:  # retried submission (worker resumed after a crash)
+            repo = ModelingRepository(self.session)
+            existing = await repo.get_job(uuid.UUID(attempts[str(body.attempt)]))
+            if existing is not None and existing.operation_batch_id:
+                existing_batch = await repo.get_batch(existing.operation_batch_id)
+                if existing_batch is not None:
+                    return existing, existing_batch
         project = await self.session.get(Project, job.project_id)
         assert project is not None
         message_id = uuid.UUID(job.payload["message_id"])
@@ -206,16 +227,52 @@ class ConversationService:
             "schema_version": DSL_SCHEMA_VERSION, "summary": body.summary, "operations": body.operations,
         }
         try:
-            mjob, batch = await modeling.submit_batch(project.user_id, project.id, batch_payload, message_id=message_id)
+            mjob, batch = await modeling.submit_batch(
+                project.user_id, project.id, batch_payload, message_id=message_id, agent_job_id=job.id,
+                defer_commit=body.defer_commit,
+            )
         except Exception:
             plan.status = "rejected"
             await self.session.commit()
             raise
         plan.status = "executing"
         batch.modeling_plan_id = plan.id
-        job.payload = {**job.payload, "modeling_job_id": str(mjob.id), "modeling_plan_id": str(plan.id)}
+        attempts[str(body.attempt)] = str(mjob.id)
+        job.payload = {
+            **job.payload, "modeling_job_id": str(mjob.id), "modeling_plan_id": str(plan.id), "attempts": attempts,
+        }
         await self.session.commit()
         return mjob, batch
+
+    async def restore(self, job_id: uuid.UUID, body: RestoreRequest) -> SceneVersion:
+        """Version manager for chat turns ("undo", "go back to version 2"): moves the head pointer."""
+        job = await self._agent_job(job_id)
+        if job.status != "running":
+            raise ConflictError(f"Agent job is {job.status}", code="job_not_running")
+        project = await self.session.get(Project, job.project_id)
+        assert project is not None
+        head = await self.session.get(SceneVersion, project.current_version_id) if project.current_version_id else None
+        if body.undo:
+            if head is None or head.parent_version_id is None:
+                raise ConflictError("There is no earlier version to go back to", code="nothing_to_undo")
+            target = await self.session.get(SceneVersion, head.parent_version_id)
+        else:
+            target = (
+                await self.session.execute(
+                    select(SceneVersion).where(
+                        SceneVersion.project_id == project.id,
+                        SceneVersion.version_number == body.version_number,
+                        SceneVersion.status == "committed",
+                    )
+                )
+            ).scalar_one_or_none()
+        if target is None:
+            raise NotFoundError("Version not found")
+        from app.services.scene_service import SceneService  # local: scene_service imports this module's deps
+
+        scenes = SceneService(self.session, self.redis, self.settings, ProjectStorage(self.settings.data_root))
+        await scenes.restore_version(project.user_id, project.id, target.id, by_agent=True)
+        return target
 
     async def record_run(self, job_id: uuid.UUID, body: AgentRunRecord) -> None:
         job = await self._agent_job(job_id)

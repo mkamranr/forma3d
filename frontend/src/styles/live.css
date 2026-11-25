@@ -185,6 +185,8 @@
   font-weight:600;
 }
 .chat-chip.muted { background:#f2f3f6; color:#8a91a0; font-weight:500; }
+.chat-chip.quality { margin-left:4px; background:#eef1fb; color:#4a5bb8; cursor:default; }
+.chat-chip.quality.warn { background:#fdf1d8; color:#7a5310; }
 .chat-action {
   display:inline-flex;
   align-items:center;

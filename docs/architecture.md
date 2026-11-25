@@ -117,3 +117,44 @@ Living record of decisions beyond `project-specification.md`. Update as phases l
   (both workers and SSE); SSE sends a comment ping every 15 s.
 - **Local runner**: `dev_local.py` starts a fakeredis **TCP** server and runs the real `blender-worker`
   and `agent-worker` processes against the real API, i.e. the same code paths as Docker.
+
+## Phase 5 — LangGraph multi-agent workflow
+
+- **Graph** (`agent-worker/app/graph/workflow.py`, spec §7.2): `load_context → inspect_scene →
+  conversation →` {`answer` | `version_manager` | `ask → wait_answer` | `planning → modeling → execute →
+  quality →` {`commit` | `revise → modeling …` | `fail`}} `→ respond`. One thread per conversation
+  (`conversation.langgraph_thread_id`); the agent job id travels in `config.configurable.job_id`.
+- **Agents**: *Conversation* (LLM: intent, task, targets, clarify), *Scene Inspection* (deterministic:
+  world bounding boxes, material users, summary; always runs before anything is changed), *3D Planning*
+  (LLM: a component plan — parts, materials, spatial relations — not raw DSL), *Modeling*
+  (deterministic compiler plan → DSL + expectations, then the shared validator), *Quality*
+  (deterministic: expected objects/materials, untouched objects identical, relations `on_top_of` /
+  `under` / `attached_to` / `inside` / `beside`, floating and below-floor parts — each failing check
+  carries a concrete fix hint), *Revision* (LLM: a minimal patch to the plan from the QA issues).
+  Each LLM agent may use its own model (`LLM_MODEL_<AGENT>`); invalid output is repaired at most
+  `AGENT_MAX_RETRIES` times with the concrete problems fed back, then rejected (nothing reaches Blender).
+- **Staged commit**: agent builds are submitted with `defer_commit=true`. Blender's result is
+  verified and *staged* (job status `staged`, `job.staged` event, project lock kept); QA reads it
+  through `/internal/v1/jobs/{id}/staged`, then the agent commits (`/commit`, creates the version)
+  or discards it (`/discard`). Only a passing attempt — or, after `AGENT_MAX_REVISIONS`, one whose
+  remaining problems are fixable geometry warnings — becomes a version; errors roll the turn back.
+  Every attempt rebuilds from the head, so revisions never stack partial results.
+- **Clarification**: `ask` completes the current job with the question; `wait_answer` calls
+  `interrupt()`. The next user message on the conversation resumes the thread with
+  `Command(resume=…)`; the Conversation Agent sees the question and original request.
+- **Persistence and resume**: invoked with `durability="sync"`, so every super-step is checkpointed
+  (SQLite in dev, Postgres `langgraph` schema in compose). Nodes are idempotent towards the backend:
+  plan submissions are keyed by attempt, commit/discard/complete are idempotent. A worker that dies
+  leaves its stream entry un-ACKed; live workers refresh their entry (XCLAIM JUSTID heartbeat), so
+  only dead workers' entries go idle and are reclaimed (`/start` with `reclaim=true`), and the
+  turn continues from its last checkpoint without repeating finished Blender builds.
+- **Exclusivity**: while an agent turn is queued or running, UI edits and UI restores return
+  409 `project_busy`, so the head cannot move under a staged attempt.
+- **Events**: `agent.started` (per agent), `agent.progress`, `plan.created`, `plan.validated`,
+  relayed `blender.*`, `quality.completed`, `version.created`, then the terminal job event. The
+  assistant message carries `metadata.quality` (`passed`, `checks`, `revisions`, `warnings`), shown
+  as a chip in the chat.
+- **Tests**: `agent-worker/tests/sim.py` simulates the internal API and DSL geometry so the whole
+  graph runs in-process: §23 scenario, Scenario C, QA failure → revision, bounded failure,
+  invalid-plan rejection, undo/restore/questions, cancel, crash at three points + resume on a new
+  worker with a SQLite checkpoint, stream reclaim.

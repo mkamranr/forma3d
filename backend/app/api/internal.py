@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session, get_settings_dep
 from app.core.config import Settings
-from app.core.errors import AppError, AuthError, NotFoundError
+from app.core.errors import AppError, AuthError, ConflictError, NotFoundError
+from app.models import SceneVersion
 from app.repositories.modeling import ModelingRepository
 from app.schemas.modeling import JobOut
 from app.services.conversation_service import ConversationService
@@ -22,10 +23,14 @@ from forma3d_shared.schemas.agent import (
     AgentCompleteRequest,
     AgentContext,
     AgentRunRecord,
+    RestoreRequest,
+    RestoreResponse,
+    StagedCommitResponse,
     SubmitPlanRequest,
     SubmitPlanResponse,
 )
 from forma3d_shared.schemas.job import BlenderJobResult, JobStartResponse
+from forma3d_shared.schemas.scene_object import SceneInventory
 
 
 async def require_service_token(
@@ -45,6 +50,13 @@ router = APIRouter(
 
 class StartRequest(BaseModel):
     worker_id: str = Field(min_length=1, max_length=64)
+    #: The worker reclaimed this message after its previous holder died (XAUTOCLAIM): an agent
+    #: job that is still `running` may be resumed from its checkpoint.
+    reclaim: bool = False
+
+
+class DiscardRequest(BaseModel):
+    reason: str = Field(default="Discarded after review", max_length=500)
 
 
 def _service(request: Request, session: AsyncSession, settings: Settings) -> JobService:
@@ -59,7 +71,7 @@ async def start_job(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings_dep),
 ) -> JobStartResponse:
-    return await _service(request, session, settings).start(job_id, body.worker_id)
+    return await _service(request, session, settings).start(job_id, body.worker_id, reclaim=body.reclaim)
 
 
 @router.post("/jobs/{job_id}/complete", response_model=JobOut)
@@ -89,7 +101,57 @@ async def get_job_internal(
     return job_out(job)
 
 
+@router.get("/jobs/{job_id}/staged", response_model=SceneInventory)
+async def staged_inventory(
+    job_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings_dep),
+) -> SceneInventory:
+    job = await _service(request, session, settings).staged_job(job_id)
+    result = job.payload.get("staged_result") if job.status == "staged" else None
+    if not result or result.get("inventory") is None:
+        raise ConflictError(f"Job is {job.status}", code="job_not_staged")
+    return SceneInventory.model_validate(result["inventory"])
+
+
+@router.post("/jobs/{job_id}/commit", response_model=StagedCommitResponse)
+async def commit_staged(
+    job_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings_dep),
+) -> StagedCommitResponse:
+    job = await _service(request, session, settings).commit_staged(job_id)
+    version = await session.get(SceneVersion, uuid.UUID(job.payload["result_version_id"]))
+    assert version is not None
+    return StagedCommitResponse(version_id=version.id, version_number=version.version_number)
+
+
+@router.post("/jobs/{job_id}/discard", response_model=JobOut)
+async def discard_staged(
+    job_id: uuid.UUID,
+    body: DiscardRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings_dep),
+) -> JobOut:
+    return job_out(await _service(request, session, settings).discard_staged(job_id, body.reason))
+
+
 # ---------------------------------------------------------------------------------- agent jobs
+@router.post("/agent-jobs/{job_id}/restore", response_model=RestoreResponse)
+async def agent_restore(
+    job_id: uuid.UUID,
+    body: RestoreRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings_dep),
+) -> RestoreResponse:
+    version = await _conv(request, session, settings).restore(job_id, body)
+    return RestoreResponse(version_id=version.id, version_number=version.version_number)
+
+
 def _conv(request: Request, session: AsyncSession, settings: Settings) -> ConversationService:
     return ConversationService(session, request.app.state.redis, settings)
 

@@ -166,7 +166,7 @@ describe('WorkspacePage (live scene)', () => {
       'GET /api/v1/projects/p1/scene': () => json(200, sceneState(done ? 2 : 1)),
       'GET /api/v1/projects/p1/versions': () => json(200, done ? [version(2, { is_current: true }), version(1)] : [version(1, { is_current: true })]),
       'GET /api/v1/projects/p1/conversation': () =>
-        json(200, conversation(done ? [user, chatMessage({ id: 'm2', role: 'assistant', content: 'The legs are now black metal.', intent: 'modeling', metadata: { version_id: 'v2', version_number: 2 } })] : [])),
+        json(200, conversation(done ? [user, chatMessage({ id: 'm2', role: 'assistant', content: 'The legs are now black metal.', intent: 'modeling', metadata: { version_id: 'v2', version_number: 2, quality: { passed: true, checks: 14, revisions: 1, warnings: [] } } })] : [])),
       'POST /api/v1/projects/p1/conversation/messages': () => json(202, { message: user, job_id: 'a1', status: 'queued' }),
       'GET /api/v1/jobs/a1/events': () => {
         done = true
@@ -187,6 +187,7 @@ describe('WorkspacePage (live scene)', () => {
     expect(JSON.parse((post[1] as RequestInit).body as string)).toEqual({ content: 'Make the legs black metal', selected_object_id: 'leg_fl' })
     expect(await screen.findByText('The legs are now black metal.')).toBeInTheDocument()
     expect(screen.getByText('Saved as v2')).toBeInTheDocument()
+    expect(screen.getByText(/QA passed · 14 checks · 1 revision/)).toBeInTheDocument()
     await waitFor(() => expect(useWorkspaceStore.getState().activeJob).toBeNull())
     expect(useWorkspaceStore.getState().toast).toBe('Saved as version 2')
     expect(screen.getByLabelText('Prompt')).toHaveValue('')

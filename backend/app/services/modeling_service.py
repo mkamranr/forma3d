@@ -9,6 +9,7 @@ from functools import lru_cache
 from typing import Any
 
 from redis.asyncio import Redis
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -29,6 +30,18 @@ log = get_logger(__name__)
 
 
 @lru_cache
+async def ensure_no_agent_turn(session: AsyncSession, project_id: uuid.UUID) -> None:
+    """A chat turn owns the project from the message until the reply (planning, Blender, QA and
+    revisions included), so direct edits and restores wait instead of racing the agent."""
+    active = await session.execute(
+        select(Job.id)
+        .where(Job.project_id == project_id, Job.job_type == "agent", Job.status.in_(("queued", "running")))
+        .limit(1)
+    )
+    if active.first() is not None:
+        raise ConflictError("The assistant is still working on this project", code="project_busy")
+
+
 def get_limits() -> ModelingLimits:
     return ModelingLimits.from_env()
 
@@ -59,12 +72,16 @@ class ModelingService:
         payload: dict[str, Any],
         *,
         message_id: uuid.UUID | None = None,
+        agent_job_id: uuid.UUID | None = None,
+        defer_commit: bool = False,
     ) -> tuple[Job, OperationBatch]:
         project = await ProjectRepository(self.session).get_owned(user_id, project_id)
         if project is None:
             raise NotFoundError("Project not found")
         if project.status != "active":
             raise ConflictError("Archived projects are read-only; unarchive it first", code="project_archived")
+        if agent_job_id is None:
+            await ensure_no_agent_turn(self.session, project.id)
 
         head = await self._head(project)
         inventory = SceneInventory.model_validate(head.object_inventory) if head else SceneInventory()
@@ -133,6 +150,8 @@ class ModelingService:
                     "staging_dir": staging_dir,
                     "message_id": str(message_id) if message_id else None,
                     "summary": validated.batch.summary,
+                    "agent_job_id": str(agent_job_id) if agent_job_id else None,
+                    "defer_commit": defer_commit,
                 },
             )
             self.session.add_all([batch, job])

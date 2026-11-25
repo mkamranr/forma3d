@@ -11,10 +11,14 @@ from forma3d_shared.schemas.agent import (
     AgentCompleteRequest,
     AgentContext,
     AgentRunRecord,
+    RestoreRequest,
+    RestoreResponse,
+    StagedCommitResponse,
     SubmitPlanRequest,
     SubmitPlanResponse,
 )
 from forma3d_shared.schemas.job import JobStartResponse
+from forma3d_shared.schemas.scene_object import SceneInventory
 
 
 class BackendUnavailable(Exception):
@@ -58,9 +62,9 @@ class BackendClient:
                 delay = min(delay * 2, 15)
         raise BackendUnavailable(str(last))
 
-    def start(self, job_id: uuid.UUID, worker_id: str) -> JobStartResponse:
+    def start(self, job_id: uuid.UUID, worker_id: str, *, reclaim: bool = False) -> JobStartResponse:
         return JobStartResponse.model_validate(
-            self._call("POST", f"/internal/v1/jobs/{job_id}/start", {"worker_id": worker_id})
+            self._call("POST", f"/internal/v1/jobs/{job_id}/start", {"worker_id": worker_id, "reclaim": reclaim})
         )
 
     def get_job(self, job_id: uuid.UUID) -> dict[str, Any]:
@@ -79,3 +83,18 @@ class BackendClient:
 
     def complete(self, job_id: uuid.UUID, body: AgentCompleteRequest) -> None:
         self._call("POST", f"/internal/v1/agent-jobs/{job_id}/complete", body.model_dump(mode="json"))
+
+    # ---------------------------------------------------------------- Phase 5: staged results, versions
+    def staged_inventory(self, modeling_job_id: uuid.UUID) -> SceneInventory:
+        return SceneInventory.model_validate(self._call("GET", f"/internal/v1/jobs/{modeling_job_id}/staged"))
+
+    def commit_staged(self, modeling_job_id: uuid.UUID) -> StagedCommitResponse:
+        return StagedCommitResponse.model_validate(self._call("POST", f"/internal/v1/jobs/{modeling_job_id}/commit"))
+
+    def discard_staged(self, modeling_job_id: uuid.UUID, reason: str) -> None:
+        self._call("POST", f"/internal/v1/jobs/{modeling_job_id}/discard", {"reason": reason[:500]})
+
+    def restore(self, job_id: uuid.UUID, body: RestoreRequest) -> RestoreResponse:
+        return RestoreResponse.model_validate(
+            self._call("POST", f"/internal/v1/agent-jobs/{job_id}/restore", body.model_dump(mode="json"))
+        )

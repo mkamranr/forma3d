@@ -12,7 +12,8 @@ from forma3d_shared.schemas.scene_object import SceneInventory
 AGENT_JOB_STREAM = "jobs:agent"
 AGENT_JOB_GROUP = "agent-workers"
 
-Intent = Literal["modeling", "question", "clarify", "export"]
+#: Turn intents. Phase 5 adds version management (undo / restore) handled without Blender.
+Intent = Literal["modeling", "question", "clarify", "export", "undo", "restore"]
 
 
 class AgentJobSpec(BaseModel):
@@ -42,6 +43,11 @@ class AgentContext(BaseModel):
     history: list[ChatTurn] = Field(default_factory=list)
     user_message: str
     selected_object_id: Optional[str] = None
+    #: LangGraph thread (one per conversation): checkpoints, pending clarifications.
+    thread_id: str = ""
+    head_version_id: Optional[uuid.UUID] = None
+    #: Version numbers that exist (for "restore version 3"), newest first, capped.
+    version_numbers: list[int] = Field(default_factory=list)
 
 
 class LLMResponse(BaseModel):
@@ -92,6 +98,10 @@ class SubmitPlanRequest(BaseModel):
     summary: str = Field(max_length=500)
     operations: list[dict[str, Any]] = Field(max_length=2000)
     plan: dict[str, Any] = Field(default_factory=dict)
+    #: Idempotency: resubmitting the same attempt of the same agent job returns the existing job.
+    attempt: int = Field(default=0, ge=0, le=100)
+    #: Stage the Blender result instead of committing it; the agent commits or discards after QA.
+    defer_commit: bool = False
 
 
 class SubmitPlanResponse(BaseModel):
@@ -121,3 +131,22 @@ class AgentCompleteRequest(BaseModel):
     error_code: Optional[str] = Field(default=None, max_length=64)
     error_message: Optional[str] = Field(default=None, max_length=1000)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StagedCommitResponse(BaseModel):
+    version_id: uuid.UUID
+    version_number: int
+
+
+class RestoreRequest(BaseModel):
+    """Version manager: `undo` restores the head's parent; otherwise `version_number`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    undo: bool = False
+    version_number: Optional[int] = Field(default=None, ge=1)
+
+
+class RestoreResponse(BaseModel):
+    version_id: uuid.UUID
+    version_number: int

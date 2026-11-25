@@ -106,6 +106,7 @@ def main() -> None:
         }),
         start_worker("agent-worker", "app.main", {
             **common, "WORKER_ID": "agent-dev", "LIVENESS_FILE": str(base / "agent-alive"),
+            "CHECKPOINT_URL": os.environ.get("CHECKPOINT_URL") or f"sqlite:///{(base / 'checkpoints.db').as_posix()}",
         }),
     ]
     print(f"[dev] data in {base}; redis {redis_url}; LLM provider {common['LLM_PROVIDER']}", flush=True)

@@ -20,7 +20,7 @@ from app.repositories.modeling import ModelingRepository
 from app.repositories.projects import ProjectRepository
 from app.schemas.scene import MaterialPatch, NewObject, ObjectMaterial, ObjectPatch
 from app.services.locks import ProjectLock
-from app.services.modeling_service import ModelingService
+from app.services.modeling_service import ModelingService, ensure_no_agent_turn
 from app.services.storage import ProjectStorage
 from forma3d_shared import DSL_SCHEMA_VERSION
 from forma3d_shared.examples import desk_batch
@@ -186,7 +186,9 @@ class SceneService:
         return await self._submit(user_id, project, desk_batch())
 
     # ------------------------------------------------------------------------------ restore
-    async def restore_version(self, user_id: uuid.UUID, project_id: uuid.UUID, version_id: uuid.UUID) -> Project:
+    async def restore_version(
+        self, user_id: uuid.UUID, project_id: uuid.UUID, version_id: uuid.UUID, *, by_agent: bool = False
+    ) -> Project:
         """Point the head at an earlier immutable version. Nothing is copied or deleted; the next
         edit branches from the restored version (its parent_version_id)."""
         project = await self._project(user_id, project_id)
@@ -195,6 +197,8 @@ class SceneService:
             raise NotFoundError("Version not found")
         if project.current_version_id == version.id:
             return project
+        if not by_agent:
+            await ensure_no_agent_turn(self.session, project.id)
         lock = ProjectLock(self.redis)
         token = uuid.uuid4()
         if not await lock.acquire(project.id, token, 30):

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 EventType = Literal[
     "job.queued",
+    "job.staged",  # agent turns: built, awaiting QA before commit
     "job.started",
     "agent.started",
     "agent.progress",

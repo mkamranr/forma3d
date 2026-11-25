@@ -17,11 +17,20 @@ from app.schemas.modeling import JobOut
 from app.services.events import EventPublisher
 from app.services.locks import ProjectLock
 from app.services.storage import ProjectStorage
-from app.services.version_service import VersionService
+from app.services.version_service import VersionService, _artifacts_match
 from forma3d_shared.schemas.events import cancel_flag_key
 from forma3d_shared.schemas.job import BlenderJobResult, JobStartResponse
 
 log = get_logger(__name__)
+
+
+def _staged_artifacts_problem(storage: ProjectStorage, staging_dir: str, result: BlenderJobResult) -> str | None:
+    if not staging_dir:
+        return "no staging directory"
+    staging = storage.resolve(staging_dir)
+    if not staging.is_dir():
+        return "staging directory missing"
+    return _artifacts_match(staging, result)
 
 
 def job_out(job: Job) -> JobOut:
@@ -59,10 +68,16 @@ class JobService:
         return job
 
     # ------------------------------------------------------------------ worker callbacks
-    async def start(self, job_id: uuid.UUID, worker_id: str) -> JobStartResponse:
+    async def start(self, job_id: uuid.UUID, worker_id: str, *, reclaim: bool = False) -> JobStartResponse:
         job = await self.repo.get_job(job_id, for_update=True)
         if job is None:
             return JobStartResponse(proceed=False, reason="unknown job")
+        if reclaim and job.job_type == "agent" and job.status == "running":
+            # The previous worker died mid-turn; the new one resumes from the LangGraph checkpoint.
+            job.worker_id = worker_id[:64]
+            await self.session.commit()
+            log.info("job.reclaimed", job_id=str(job.id), worker_id=worker_id)
+            return JobStartResponse(proceed=True, reason="resumed")
         if job.status != "queued":
             return JobStartResponse(proceed=False, reason=f"job is {job.status}")
         job.status = "running"
@@ -93,39 +108,12 @@ class JobService:
             "blender_version": result.blender_version,
             "log_tail": result.log_tail[-4000:],
         }
-        versions = VersionService(self.session, self.storage)
+        keep_lock = False
         try:
-            if result.success:
-                await self.events.publish(job.id, "agent.progress", stage="saving", message="Saving version")
-                holder = await self.lock.holder(project.id)
-                try:
-                    version = await versions.commit(
-                        job=job, project=project, batch=batch, result=result, lock_holder=holder
-                    )
-                except AppError as exc:
-                    await self._fail(job, batch, exc.code, exc.message)
-                    return job_out(job)
-                await self.events.publish(
-                    job.id,
-                    "version.created",
-                    stage="saved",
-                    message=f"Version {version.version_number} saved",
-                    data={"version_id": str(version.id), "version_number": version.version_number},
-                )
-                await self.events.publish(
-                    job.id,
-                    "asset.ready",
-                    stage="saved",
-                    message="Model ready",
-                    data={"version_id": str(version.id), "kinds": [a.kind for a in result.artifacts]},
-                )
-                await self.events.publish(
-                    job.id,
-                    "job.completed",
-                    stage="done",
-                    message="Done",
-                    data={"version_id": str(version.id), "version_number": version.version_number},
-                )
+            if result.success and job.payload.get("defer_commit"):
+                keep_lock = await self._stage(job, batch, result)
+            elif result.success:
+                await self._commit(job, project, batch, result)
             else:
                 cancelled = result.error_code == "cancelled"
                 await self._fail(
@@ -138,8 +126,104 @@ class JobService:
                 )
             return job_out(job)
         finally:
+            if not keep_lock:
+                await self.lock.release(project.id, job.id)
+                await self.redis.delete(cancel_flag_key(job.id))
+
+    async def _commit(self, job: Job, project: Project, batch, result: BlenderJobResult) -> bool:
+        await self.events.publish(job.id, "agent.progress", stage="saving", message="Saving version")
+        holder = await self.lock.holder(project.id)
+        try:
+            version = await VersionService(self.session, self.storage).commit(
+                job=job, project=project, batch=batch, result=result, lock_holder=holder
+            )
+        except AppError as exc:
+            await self._fail(job, batch, exc.code, exc.message)
+            return False
+        data = {"version_id": str(version.id), "version_number": version.version_number}
+        await self.events.publish(
+            job.id, "version.created", stage="saved", message=f"Version {version.version_number} saved", data=data
+        )
+        await self.events.publish(
+            job.id,
+            "asset.ready",
+            stage="saved",
+            message="Model ready",
+            data={"version_id": str(version.id), "kinds": [a.kind for a in result.artifacts]},
+        )
+        await self.events.publish(job.id, "job.completed", stage="done", message="Done", data=data)
+        return True
+
+    # ------------------------------------------------------------------ staged results (agent QA)
+    async def _stage(self, job: Job, batch, result: BlenderJobResult) -> bool:
+        """Hold a successful result for review instead of committing it. Artifacts stay in staging
+        and the project lock stays with this job until the agent commits or discards it."""
+        reason = await asyncio.to_thread(
+            _staged_artifacts_problem, self.storage, job.payload.get("staging_dir", ""), result
+        )
+        if reason or result.inventory is None:
+            await self._fail(job, batch, "artifact_mismatch", f"Staged artifacts failed verification: {reason}")
+            return False
+        job.status = "staged"
+        job.payload = {**job.payload, "staged_result": result.model_dump(mode="json")}
+        job.progress = {"stage": "review", "message": "Checking the result"}
+        if batch is not None:
+            batch.execution_status = "staged"
+        await self.session.commit()
+        await self.events.publish(job.id, "job.staged", stage="review", message="Built; checking the result")
+        return True
+
+    async def staged_job(self, job_id: uuid.UUID, *, for_update: bool = False) -> Job:
+        job = await self.repo.get_job(job_id, for_update=for_update)
+        if job is None:
+            raise NotFoundError("Job not found")
+        return job
+
+    async def commit_staged(self, job_id: uuid.UUID) -> Job:
+        job = await self.staged_job(job_id, for_update=True)
+        if job.status == "succeeded":
+            return job  # idempotent (agent resumed after a crash)
+        if job.status != "staged":
+            raise ConflictError(f"Job is {job.status}", code="job_not_staged")
+        project = await self.session.get(Project, job.project_id)
+        batch = await self.repo.get_batch(job.operation_batch_id) if job.operation_batch_id else None
+        assert project is not None
+        result = BlenderJobResult.model_validate(job.payload["staged_result"])
+        try:
+            ok = await self._commit(job, project, batch, result)
+        finally:
             await self.lock.release(project.id, job.id)
             await self.redis.delete(cancel_flag_key(job.id))
+        if not ok:
+            raise ConflictError(job.error_message or "The result could not be saved", code="commit_failed")
+        return job
+
+    async def discard_staged(self, job_id: uuid.UUID, reason: str) -> Job:
+        job = await self.staged_job(job_id, for_update=True)
+        if job.status in ("discarded", "failed", "cancelled"):
+            return job
+        if job.status != "staged":
+            raise ConflictError(f"Job is {job.status}", code="job_not_staged")
+        batch = await self.repo.get_batch(job.operation_batch_id) if job.operation_batch_id else None
+        await asyncio.to_thread(
+            VersionService(self.session, self.storage).discard_staging, job.payload.get("staging_dir", "")
+        )
+        now = utcnow()
+        job.status = "discarded"
+        job.completed_at = now
+        job.error_message = reason[:1000]
+        job.progress = {"stage": "discarded", "message": reason[:200]}
+        job.payload = {k: v for k, v in job.payload.items() if k != "staged_result"}
+        if batch is not None:
+            batch.execution_status = "discarded"
+            batch.completed_at = now
+        await self.session.commit()
+        await self.lock.release(job.project_id, job.id)
+        await self.redis.delete(cancel_flag_key(job.id))
+        await self.events.publish(
+            job.id, "job.failed", stage="discarded", message=reason[:300], data={"error_code": "discarded"}
+        )
+        return job
 
     async def _fail(
         self,

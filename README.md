@@ -13,9 +13,10 @@ Full specification: [`project-specification.md`](project-specification.md).
 | 1 | Infrastructure, auth, project CRUD, dashboard, health checks | **Done** (pending first run on the Docker host) |
 | 2 | Blender worker, modeling DSL v1, validator, GLB export, versioned commits | **Done** (pending first run on the Docker host) |
 | 3 | Interactive workspace wired to real scenes | **Done** (pending first run on the Docker host) |
-| 4 | LLM integration (vLLM) — conversational vertical slice (§23) | **Done** with the offline planner; real-vLLM run pending |
-| 5 | LangGraph multi-agent workflow (inspection, QA, clarification, revision) | Next |
-| 6–8 | Conversational editing & versioning, advanced modeling, hardening | — |
+| 4 | LLM integration (vLLM) — conversational vertical slice (§23) | **Done**, verified against a real vLLM model |
+| 5 | LangGraph multi-agent workflow (inspection, QA, clarification, revision, resume) | **Done**, verified against a real vLLM model |
+| 6 | Conversational editing & versioning | Next |
+| 7–8 | Advanced modeling, hardening | — |
 
 ## Repository layout
 
@@ -99,11 +100,14 @@ Set in `.env`; the endpoint must be reachable from the `agent-worker` container:
 |---|---|
 | `LLM_PROVIDER` | `vllm` / `openai_compatible`, or `fake` for the offline planner (CI, demos) |
 | `LLM_BASE_URL` | e.g. `http://10.0.0.5:8000/v1` |
-| `LLM_MODEL`, `LLM_MODEL_PLANNING` | served model name (`vllm serve <name>`); planning override optional |
+| `LLM_MODEL` | served model name (`vllm serve <name>`) |
+| `LLM_MODEL_CONVERSATION`, `LLM_MODEL_PLANNING`, `LLM_MODEL_REVISION` | optional per-agent models on the same endpoint (fall back to `LLM_MODEL`) |
 | `LLM_STRUCTURED_OUTPUT` | `json_schema` (vLLM >= 0.6 `response_format`), `guided_json` (older vLLM), `json_object`, `none` |
 | `LLM_THINKING` | `auto` / `on` / `off`: vLLM `chat_template_kwargs.enable_thinking` for reasoning models (Qwen3...); `off` is far faster |
 | `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`, `LLM_TIMEOUT_SECONDS` | sampling and limits (defaults 0.2 / 8192 / 120 s) |
-| `AGENT_MAX_RETRIES` | repair attempts when a plan fails to parse or validate (default 2) |
+| `AGENT_MAX_RETRIES` | repair attempts per LLM agent call when its output fails to parse or validate (default 2) |
+| `AGENT_MAX_REVISIONS` | QA → Revision Agent → rebuild loops per turn (default 2) |
+| `CHECKPOINT_URL` | LangGraph checkpointer: `memory`, `sqlite:///file.db` (dev_local default), `postgresql://…` (compose default, `langgraph` schema) |
 
 Whatever the model returns is parsed, schema-checked and run through the same DSL validator as
 every other edit before Blender sees it. Invalid plans go back to the model with the validator's
@@ -148,7 +152,8 @@ VITE_API_PROXY=http://localhost:8000 npm run dev
 
 All scene edits compile to DSL and return 202 + `job_id`, exactly like `modeling/execute`.
 | POST | `/internal/v1/jobs/{id}/start` · `complete` | worker callbacks, `X-Internal-Token`, internal network only |
-| GET/POST | `/internal/v1/agent-jobs/{id}/context` · `plan` · `runs` · `complete` | agent worker: context, validated plan, LLM call records, reply |
+| GET/POST | `/internal/v1/agent-jobs/{id}/context` · `plan` · `runs` · `restore` · `complete` | agent worker: context, validated plan (per attempt, `defer_commit`), agent run records, undo/restore, reply |
+| GET/POST | `/internal/v1/jobs/{id}/staged` · `commit` · `discard` | agent worker: inspect a staged Blender result, then commit it as a version or discard it |
 
 DSL reference: [`docs/modeling-dsl.md`](docs/modeling-dsl.md). Try it after `make up` (token from login):
 
@@ -164,12 +169,14 @@ Interactive docs at `/api/docs` when `APP_ENV != production`.
 - Blender runs CPU-only (Cycles thumbnail at 384 px, a few seconds per job); GPU compose is Phase 8.
 - The Linux Blender image pins and checksum-verifies the official tarball but has not yet been built
   on the Docker host; all Blender tests so far ran against Blender 4.5.17 on Windows.
-- Phase 4 is verified end to end with the offline planner and real Blender, **not yet against a
-  real vLLM model**; prompt tuning for the chosen model follows that first run.
-- The planner is one structured LLM call plus bounded repair: no post-build inspection/QA,
-  clarification state or resumable workflow yet (LangGraph, Phase 5). Stage events stream; reply
-  text is not streamed token by token.
-- The offline planner only understands the §23 scenario phrases (desk, black legs, drawers, walnut,
+- LangGraph checkpoints are verified with SQLite (unit tests + `dev_local`); the Postgres checkpointer
+  (compose default) has not yet run against a real Postgres (first Docker-host run).
+- QA is geometric and deterministic (bounding boxes, relations, untouched objects); it does not judge
+  aesthetics. A staged result abandoned by a crashed worker keeps the project lock until the job
+  is reclaimed (a sweeper for orphaned staged jobs is Phase 8).
+- Agent turns run one at a time per project; UI edits get 409 `project_busy` during a turn.
+  Reply text is not streamed token by token (stage events are).
+- The offline (`fake`) provider only understands the §23 / Scenario C phrases (desk, black legs, drawers, walnut,
   export, simple questions); anything else gets a clarifying reply.
 - Every edit is a Blender job (≈5–20 s each, CPU thumbnail included); edits are disabled while one runs.
 - Gizmo resize previews scale children, but the committed `set_dimensions` only resizes the object's

@@ -1,4 +1,4 @@
-import { Check, Command, Cuboid, Download, GitCommitHorizontal, Loader2, MousePointer2, PanelLeftClose, Plus, Send, Sparkles, WandSparkles } from 'lucide-react'
+import { Check, Command, Cuboid, Download, GitCommitHorizontal, History, Loader2, MousePointer2, PanelLeftClose, Plus, Send, ShieldAlert, ShieldCheck, Sparkles, WandSparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { glbUrl, useConversation, useSendMessage, useVersions } from '../../features/modeling/hooks'
 import { useWorkspaceScene } from '../../features/modeling/WorkspaceContext'
@@ -49,6 +49,17 @@ function ExportButton({ message, projectName }: { message: ConversationMessage; 
   )
 }
 
+function QualityChip({ quality }: { quality: NonNullable<ConversationMessage['metadata']['quality']> }) {
+  const revised = quality.revisions ? ` · ${quality.revisions} revision${quality.revisions > 1 ? 's' : ''}` : ''
+  const title = quality.warnings.length ? quality.warnings.join(' · ') : 'All quality checks passed'
+  return (
+    <div className={`chat-chip quality${quality.passed ? '' : ' warn'}`} title={title}>
+      {quality.passed ? <ShieldCheck size={12} /> : <ShieldAlert size={12} />}
+      {quality.passed ? 'QA passed' : 'QA warnings'} · {quality.checks} checks{revised}
+    </div>
+  )
+}
+
 function MessageView({ m, projectName }: { m: ConversationMessage; projectName: string }) {
   const failed = m.role === 'assistant' && (m.status === 'failed' || m.status === 'cancelled')
   return (
@@ -59,9 +70,12 @@ function MessageView({ m, projectName }: { m: ConversationMessage; projectName: 
           {m.role === 'assistant' ? 'Forma Assistant' : 'You'} <span>{clockTime(new Date(m.created_at))}</span>
         </div>
         <div className={`bubble${failed ? ' failed' : ''}`}>{m.content}</div>
-        {m.metadata.version_number ? (
+        {m.metadata.restored ? (
+          <div className="chat-chip"><History size={12} /> Restored v{m.metadata.restored}</div>
+        ) : m.metadata.version_number ? (
           <div className="chat-chip"><GitCommitHorizontal size={12} /> Saved as v{m.metadata.version_number}</div>
         ) : null}
+        {m.metadata.quality && <QualityChip quality={m.metadata.quality} />}
         {m.metadata.action === 'export' && <ExportButton message={m} projectName={projectName} />}
       </div>
     </div>

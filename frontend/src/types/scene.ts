@@ -114,13 +114,17 @@ export type MessageMetadata = {
   error_code?: string
   agent_job_id?: string
   selected_object_id?: string
+  /** Set when the assistant restored an earlier version (undo / "go back to version N"). */
+  restored?: number
+  /** Quality Agent verdict for an agent-built version. */
+  quality?: { passed: boolean; checks: number; revisions: number; warnings: string[] }
 }
 
 export type ConversationMessage = {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
-  intent: 'modeling' | 'question' | 'clarify' | 'export' | null
+  intent: 'modeling' | 'question' | 'clarify' | 'export' | 'undo' | 'restore' | null
   status: string
   metadata: MessageMetadata
   created_at: string
