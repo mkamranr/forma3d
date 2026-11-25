@@ -1,24 +1,42 @@
-# Forma3D — Docker Compose (base / production-like).
-# Usage (from repo root):  docker compose --env-file .env -f deployment/docker-compose.yml up -d --build
-# Image versions are pinned by tag; digests are pinned for the offline bundle in Phase 8.
+# Forma3D — Docker Compose (production).
+#   docker compose --env-file .env -f deployment/docker-compose.yml up -d --build
+# Optional overlays (add with extra -f flags, see docs/deployment.md):
+#   docker-compose.secrets.yml     secrets from files instead of .env (recommended for production)
+#   docker-compose.gpu.yml         NVIDIA GPU rendering for the Blender workers
+#   docker-compose.monitoring.yml  Prometheus scraping /metrics on the internal network
+# Image tags are pinned; `deployment/scripts/offline-bundle.sh` records their digests for offline installs.
 
 name: forma3d
 
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+# Least privilege for every application container (spec §15): no new privileges, no capabilities,
+# read-only root filesystem (writes only to tmpfs and the named volumes), bounded process count.
 x-app-hardening: &app-hardening
+  <<: *logging
   restart: unless-stopped
+  read_only: true
   security_opt:
     - no-new-privileges:true
   cap_drop:
     - ALL
+  pids_limit: 256
 
 services:
   frontend:
     <<: *app-hardening
+    image: forma3d/frontend:${FORMA3D_VERSION:-local}
     build:
       context: ../frontend
       dockerfile: Dockerfile
     ports:
-      - "${FRONTEND_PORT:-3000}:8080"
+      - "${FRONTEND_BIND:-0.0.0.0}:${FRONTEND_PORT:-3000}:8080"
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/cache/nginx:size=64m,mode=1777
     depends_on:
       backend:
         condition: service_healthy
@@ -28,13 +46,16 @@ services:
         limits: { cpus: "0.5", memory: 256M }
 
   migrate:
+    <<: *logging
+    image: forma3d/backend:${FORMA3D_VERSION:-local}
     build:
       context: ..
       dockerfile: backend/Dockerfile
       target: runtime
-    image: forma3d/backend:local
     command: ["alembic", "upgrade", "head"]
     env_file: ../.env
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,7 +66,7 @@ services:
 
   backend:
     <<: *app-hardening
-    image: forma3d/backend:local
+    image: forma3d/backend:${FORMA3D_VERSION:-local}
     build:
       context: ..
       dockerfile: backend/Dockerfile
@@ -53,6 +74,8 @@ services:
     env_file: ../.env
     volumes:
       - project_data:/data
+    tmpfs:
+      - /tmp:size=128m,mode=1777
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -63,10 +86,11 @@ services:
     networks: [app, data]
     deploy:
       resources:
-        limits: { cpus: "1.0", memory: 512M }
+        limits: { cpus: "${BACKEND_CPUS:-1.0}", memory: "${BACKEND_MEMORY:-768M}" }
 
   agent-worker:
     <<: *app-hardening
+    image: forma3d/agent-worker:${FORMA3D_VERSION:-local}
     build:
       context: ..
       dockerfile: agent-worker/Dockerfile
@@ -74,8 +98,9 @@ services:
     env_file: ../.env
     environment:
       BACKEND_INTERNAL_URL: http://backend:8000
-      # LangGraph checkpoints live in their own `langgraph` schema of the app database.
-      CHECKPOINT_URL: postgresql://${POSTGRES_USER:-forma3d}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-forma3d}
+      # LangGraph checkpoints live in their own `langgraph` schema of the app database. With the
+      # secrets overlay the password is injected from the DATABASE_PASSWORD secret instead.
+      CHECKPOINT_URL: postgresql://${POSTGRES_USER:-forma3d}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-forma3d}
     tmpfs:
       - /tmp:size=64m,mode=1777
     # Finish the current LLM call / relay before stopping (un-ACKed jobs are reclaimed anyway).
@@ -90,11 +115,13 @@ services:
     # `llm` gives outbound access to the configured LLM endpoint only this service needs.
     networks: [data, llm]
     deploy:
+      replicas: ${AGENT_WORKERS:-1}
       resources:
         limits: { cpus: "1.0", memory: 1G }
 
   blender-worker:
     <<: *app-hardening
+    image: forma3d/blender-worker:${FORMA3D_VERSION:-local}
     build:
       context: ..
       dockerfile: blender-worker/Dockerfile
@@ -106,7 +133,8 @@ services:
     volumes:
       - project_data:/data
     tmpfs:
-      - /tmp:size=2g,mode=1777
+      # job workspaces (WORK_ROOT) + Blender's HOME/config; size bounds a runaway job
+      - /tmp:size=${BLENDER_TMP_SIZE:-2g},mode=1777
     # Let an in-flight Blender job finish or be cancelled cleanly (job timeout + grace).
     stop_grace_period: 60s
     depends_on:
@@ -117,16 +145,20 @@ services:
     # Internal network only: no inbound ports, no internet egress.
     networks: [data]
     deploy:
+      # Several workers are safe: the project lock serialises builds per project and reclaimed jobs
+      # re-run only when their worker's heartbeat is gone (docs/operations.md, "Scaling").
+      replicas: ${BLENDER_WORKERS:-1}
       resources:
         limits: { cpus: "${BLENDER_CPUS:-2.0}", memory: "${BLENDER_MEMORY:-4G}" }
 
   postgres:
+    <<: *logging
     image: postgres:17.12-bookworm
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-forma3d}
       POSTGRES_USER: ${POSTGRES_USER:-forma3d}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -134,15 +166,18 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    shm_size: 256m
+    security_opt: ["no-new-privileges:true"]
     networks: [data]
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 1G }
 
   redis:
+    <<: *logging
     image: redis:7.4.12-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000", "--maxmemory-policy", "noeviction"]
     volumes:
       - redis_data:/data
     healthcheck:
@@ -150,6 +185,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]  # the entrypoint fixes /data ownership, then drops to `redis`
     networks: [data]
     deploy:
       resources:

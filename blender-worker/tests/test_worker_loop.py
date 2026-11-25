@@ -15,14 +15,16 @@ from tests.conftest import canonical, make_spec
 
 
 class FakeBackend:
-    def __init__(self, proceed=True, fail_complete=False):
+    def __init__(self, proceed=True, fail_complete=False, reason="already finished"):
         self.proceed = proceed
         self.fail_complete = fail_complete
-        self.started, self.completed = [], []
+        self.reason = reason
+        self.started, self.completed, self.reclaims = [], [], []
 
-    def start(self, job_id, worker_id):
+    def start(self, job_id, worker_id, *, reclaim=False):
         self.started.append(job_id)
-        return JobStartResponse(proceed=self.proceed, reason="" if self.proceed else "already finished")
+        self.reclaims.append(reclaim)
+        return JobStartResponse(proceed=self.proceed, reason="" if self.proceed else self.reason)
 
     def complete(self, result):
         if self.fail_complete:
@@ -105,3 +107,63 @@ def test_ensure_group_is_idempotent(cfg, r):
     w = Worker(cfg, r, FakeBackend())
     w.ensure_group()
     w.ensure_group()
+
+
+def test_reclaim_reruns_a_dead_workers_job_and_respects_a_live_owner(cfg, r, monkeypatch):
+    monkeypatch.setattr(worker_mod, "execute_job", fake_execute())
+    dead = Worker(cfg, r, FakeBackend())
+    dead.ensure_group()
+    enqueue(r, make_spec(canonical(desk_batch())))
+    read_one(dead)  # delivered to a worker that then crashed: pending, never acked
+    assert pending(r) == 1
+
+    from dataclasses import replace
+
+    live_backend = FakeBackend(proceed=False, reason="running_elsewhere")
+    other = Worker(replace(cfg, worker_id="blender-other", reclaim_idle_seconds=30), r, live_backend)
+    object.__setattr__(other.cfg, "reclaim_idle_seconds", 0)  # frozen dataclass: test-only override
+    other.reclaim_pending()
+    assert live_backend.reclaims == [True] and pending(r) == 1  # owner still alive: left pending
+
+    backend = FakeBackend()
+    taker = Worker(replace(cfg, worker_id="blender-taker"), r, backend)
+    object.__setattr__(taker.cfg, "reclaim_idle_seconds", 0)
+    taker.reclaim_pending()
+    assert backend.reclaims == [True] and len(backend.completed) == 1 and pending(r) == 0
+
+
+def test_heartbeat_keeps_the_in_flight_entry_fresh(cfg, r):
+    w = Worker(cfg, r, FakeBackend())
+    w.ensure_group()
+    enqueue(r, make_spec(canonical(desk_batch())))
+    msg_id, _ = read_one(w)
+    w.current_msg = msg_id
+    import threading
+
+    t = threading.Thread(target=w.heartbeat_loop, daemon=True)
+    t.start()
+    import time
+
+    time.sleep(0.2)
+    w.stop.set()
+    t.join(2)
+    entry = r.xpending_range(BLENDER_JOB_STREAM, BLENDER_JOB_GROUP, min="-", max="+", count=1)[0]
+    assert entry["consumer"] == cfg.worker_id and entry["time_since_delivered"] < 1000
+    assert r.get(f"workers:blender:{cfg.worker_id}")
+
+
+def test_blender_never_sees_worker_secrets(tmp_path):
+    from app.job_runner import blender_env
+
+    env = blender_env(
+        tmp_path,
+        {
+            "PATH": "/usr/bin",
+            "INTERNAL_SERVICE_TOKEN": "s3cret",
+            "REDIS_URL": "redis://r",
+            "F3D_CYCLES_DEVICE": "OPTIX",
+        },
+    )
+    assert env["PATH"] == "/usr/bin" and env["F3D_CYCLES_DEVICE"] == "OPTIX"
+    assert "INTERNAL_SERVICE_TOKEN" not in env and "REDIS_URL" not in env
+    assert env["BLENDER_USER_CONFIG"].startswith(str(tmp_path))

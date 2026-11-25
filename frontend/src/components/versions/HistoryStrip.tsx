@@ -2,33 +2,11 @@ import { ArrowRight, ChevronRight, Clock3, GitBranch, GitCompareArrows, History,
 import { useEffect, useMemo, useState } from 'react'
 import { errorMessage, useCompare, useRestoreVersion, useVersions } from '../../features/modeling/hooks'
 import { useProjectId } from '../../features/modeling/WorkspaceContext'
-import { fetchAsset } from '../../services/scene'
+import { useAssetObjectUrl } from '../../hooks/useAssetObjectUrl'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import type { FieldChange, Version, VersionCompare } from '../../types/scene'
 import { relativeTime } from '../../utils/format'
 import { Dialog } from '../ui/Dialog'
-
-/** Asset routes need the bearer token, so images are fetched and shown via object URLs. */
-export function useAssetObjectUrl(url: string | null | undefined, type = 'image/png') {
-  const [objectUrl, setObjectUrl] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
-  useEffect(() => {
-    if (!url) return
-    const controller = new AbortController()
-    let created: string | null = null
-    fetchAsset(url, controller.signal)
-      .then((buf) => {
-        created = URL.createObjectURL(new Blob([buf], { type }))
-        setObjectUrl(created)
-      })
-      .catch(() => !controller.signal.aborted && setFailed(true))
-    return () => {
-      controller.abort()
-      if (created) URL.revokeObjectURL(created)
-    }
-  }, [url, type])
-  return { objectUrl, failed }
-}
 
 function Thumb({ version }: { version: Version }) {
   const url = version.assets.find((a) => a.kind === 'thumbnail')?.url

@@ -9,6 +9,7 @@ settings never become part of the user's scene.
 from __future__ import annotations
 
 import math
+import os
 
 import bpy
 from mathutils import Vector
@@ -92,10 +93,32 @@ def _ensure_world() -> None:
         bg.inputs["Strength"].default_value = 1.0
 
 
+GPU_BACKENDS = ("OPTIX", "CUDA", "HIP", "ONEAPI", "METAL")
+
+
+def _gpu_device() -> bool:
+    """Use a GPU when the GPU compose profile sets F3D_CYCLES_DEVICE (OPTIX, CUDA, HIP, ...) and Blender
+    finds a matching device; otherwise fall back to the CPU silently (spec §14.5: GPU is optional)."""
+    backend = os.environ.get("F3D_CYCLES_DEVICE", "").upper()
+    if backend not in GPU_BACKENDS:
+        return False
+    try:
+        prefs = bpy.context.preferences.addons["cycles"].preferences
+        prefs.compute_device_type = backend
+        prefs.get_devices()
+        found = False
+        for device in prefs.devices:
+            device.use = device.type == backend
+            found = found or device.use
+        return found
+    except Exception:
+        return False
+
+
 def _cycles(samples: int) -> None:
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
-    scene.cycles.device = "CPU"
+    scene.cycles.device = "GPU" if _gpu_device() else "CPU"
     scene.cycles.samples = samples
     scene.cycles.use_adaptive_sampling = True
     try:

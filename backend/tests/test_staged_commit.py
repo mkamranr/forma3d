@@ -66,8 +66,15 @@ async def test_staged_result_is_reviewed_then_committed(client: AsyncClient, set
     again = await client.post(f"/internal/v1/jobs/{mjob}/commit", headers=INTERNAL)  # idempotent
     assert again.status_code == 200 and again.json()["version_number"] == 1
     assert await _versions(client, h, pid) == [1]
-    await _complete(client, spec.job_id, success=True, intent="modeling", reply="Done.", modeling_job_id=mjob,
-                    metadata={"quality": {"passed": True, "checks": 12, "revisions": 0}})
+    await _complete(
+        client,
+        spec.job_id,
+        success=True,
+        intent="modeling",
+        reply="Done.",
+        modeling_job_id=mjob,
+        metadata={"quality": {"passed": True, "checks": 12, "revisions": 0}},
+    )
     conv = (await client.get(f"/api/v1/projects/{pid}/conversation", headers=h)).json()
     meta = conv["messages"][-1]["metadata"]
     assert meta["version_number"] == 1 and meta["quality"]["passed"] is True
@@ -79,8 +86,9 @@ async def test_discard_then_revised_attempt(client: AsyncClient, settings: Setti
     spec = await _turn(client, h, pid)
     first = (await _submit(client, spec.job_id, desk_batch()["operations"], attempt=0))["modeling_job_id"]
     await worker.run(commit_scene=False)
-    res = await client.post(f"/internal/v1/jobs/{first}/discard", json={"reason": "QA: drawer floats"},
-                            headers=INTERNAL)
+    res = await client.post(
+        f"/internal/v1/jobs/{first}/discard", json={"reason": "QA: drawer floats"}, headers=INTERNAL
+    )
     assert res.status_code == 200 and res.json()["status"] == "discarded"
     staging = list(Path(settings.data_root).rglob("staging/*"))
     assert staging == []  # staged artifacts removed
@@ -117,17 +125,20 @@ async def test_agent_undo_and_restore(client: AsyncClient, settings: Settings) -
     assert ctx["version_numbers"] == [2, 1] and ctx["thread_id"] and ctx["head_version_id"]
     res = await client.post(f"/internal/v1/agent-jobs/{spec.job_id}/restore", json={"undo": True}, headers=INTERNAL)
     assert res.status_code == 200 and res.json()["version_number"] == 1
-    await _complete(client, spec.job_id, success=True, intent="undo", reply="Back to version 1.",
-                    metadata={"restored": 1})
+    await _complete(
+        client, spec.job_id, success=True, intent="undo", reply="Back to version 1.", metadata={"restored": 1}
+    )
     scene = (await client.get(f"/api/v1/projects/{pid}/scene", headers=h)).json()
     assert scene["version"]["version_number"] == 1
 
     spec = await _turn(client, h, pid, "restore version 2")
-    res = await client.post(f"/internal/v1/agent-jobs/{spec.job_id}/restore", json={"version_number": 2},
-                            headers=INTERNAL)
+    res = await client.post(
+        f"/internal/v1/agent-jobs/{spec.job_id}/restore", json={"version_number": 2}, headers=INTERNAL
+    )
     assert res.json()["version_number"] == 2
-    res = await client.post(f"/internal/v1/agent-jobs/{spec.job_id}/restore", json={"version_number": 9},
-                            headers=INTERNAL)
+    res = await client.post(
+        f"/internal/v1/agent-jobs/{spec.job_id}/restore", json={"version_number": 9}, headers=INTERNAL
+    )
     assert res.status_code == 404
 
 

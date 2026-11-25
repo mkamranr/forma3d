@@ -29,3 +29,8 @@ data/*
 Thumbs.db
 .idea/
 .vscode/
+
+# Deployment artifacts
+deployment/monitoring/metrics_token
+backups/
+dist/

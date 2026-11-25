@@ -13,6 +13,7 @@ import threading
 import time
 from typing import Any
 
+import httpx
 import redis
 from forma3d_shared.constants.limits import ModelingLimits
 from forma3d_shared.schemas.agent import AGENT_JOB_GROUP, AGENT_JOB_STREAM, AgentCompleteRequest, AgentJobSpec
@@ -63,6 +64,27 @@ class Worker:
         )
         self.stop = threading.Event()
         self.current_msg: str | None = None
+        self._llm_checked = 0.0
+
+    def llm_reachable(self) -> bool:
+        """Cheap connectivity probe (GET {base}/models) for readiness/metrics; never sends prompts."""
+        if self.cfg.llm_provider == "fake":
+            return True
+        headers = {"Authorization": f"Bearer {self.cfg.llm_api_key}"} if self.cfg.llm_api_key else {}
+        try:
+            res = httpx.get(f"{self.cfg.llm_base_url.rstrip('/')}/models", headers=headers, timeout=5.0)
+            return res.status_code < 500
+        except httpx.HTTPError:
+            return False
+
+    def report_llm(self) -> None:
+        if time.monotonic() - self._llm_checked < 60:
+            return
+        self._llm_checked = time.monotonic()
+        status = "ok" if self.llm_reachable() else "unavailable"
+        self.redis.set(f"workers:agent:{self.cfg.worker_id}:llm", status, ex=150)
+        if status != "ok":
+            log("worker.llm_unreachable", base_url=self.cfg.llm_base_url)
 
     def ensure_group(self) -> None:
         try:
@@ -85,6 +107,7 @@ class Worker:
                 self.redis.set(f"workers:agent:{self.cfg.worker_id}", int(time.time()), ex=45)
                 self.touch_current()
                 self.cfg.liveness_file.write_text(str(int(time.time())))
+                self.report_llm()
             except Exception as exc:
                 log("worker.heartbeat_failed", error=type(exc).__name__)
             self.stop.wait(10)

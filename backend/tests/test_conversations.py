@@ -20,8 +20,7 @@ def settings(tmp_path: Path) -> Settings:
 
 
 async def _post(client: AsyncClient, h: dict, pid: str, text: str, **extra) -> dict:
-    res = await client.post(f"/api/v1/projects/{pid}/conversation/messages", json={"content": text, **extra},
-                            headers=h)
+    res = await client.post(f"/api/v1/projects/{pid}/conversation/messages", json={"content": text, **extra}, headers=h)
     assert res.status_code == 202, res.text
     return res.json()
 
@@ -52,15 +51,19 @@ async def _modeling_turn(client: AsyncClient, worker: FakeWorker, h: dict, pid: 
     await _start(client, spec.job_id)
     ctx = (await client.get(f"/internal/v1/agent-jobs/{spec.job_id}/context", headers=INTERNAL)).json()
     assert ctx["user_message"] == text
-    res = await client.post(f"/internal/v1/agent-jobs/{spec.job_id}/plan",
-                            json={"summary": text, "operations": ops}, headers=INTERNAL)
+    res = await client.post(
+        f"/internal/v1/agent-jobs/{spec.job_id}/plan", json={"summary": text, "operations": ops}, headers=INTERNAL
+    )
     assert res.status_code == 200, res.text
     mjob = res.json()["modeling_job_id"]
     await worker.run()
     job = (await client.get(f"/internal/v1/jobs/{mjob}", headers=INTERNAL)).json()
     assert job["status"] == "succeeded"
-    await client.post(f"/internal/v1/agent-jobs/{spec.job_id}/runs", headers=INTERNAL, json={
-        "agent_name": "planner", "model_name": "fake", "status": "succeeded", "duration_ms": 3})
+    await client.post(
+        f"/internal/v1/agent-jobs/{spec.job_id}/runs",
+        headers=INTERNAL,
+        json={"agent_name": "planner", "model_name": "fake", "status": "succeeded", "duration_ms": 3},
+    )
     await _complete(client, spec.job_id, success=True, intent="modeling", reply="Done.", modeling_job_id=mjob)
     return ctx
 
@@ -113,10 +116,17 @@ async def test_invalid_plan_is_rejected_with_issues(client: AsyncClient, setting
     await _post(client, h, pid, "paint the ghost")
     spec = await _agent_spec(client)
     await _start(client, spec.job_id)
-    bad = [{"operation_id": "a", "operation_type": "assign_material", "target_object_id": "ghost",
-            "parameters": {"material_id": "oak"}}]
-    res = await client.post(f"/internal/v1/agent-jobs/{spec.job_id}/plan", json={"summary": "x", "operations": bad},
-                            headers=INTERNAL)
+    bad = [
+        {
+            "operation_id": "a",
+            "operation_type": "assign_material",
+            "target_object_id": "ghost",
+            "parameters": {"material_id": "oak"},
+        }
+    ]
+    res = await client.post(
+        f"/internal/v1/agent-jobs/{spec.job_id}/plan", json={"summary": "x", "operations": bad}, headers=INTERNAL
+    )
     assert res.status_code == 422 and res.json()["code"] == "invalid_batch" and res.json()["issues"]
     await _complete(client, spec.job_id, success=False, reply="Could not plan that.", error_code="plan_invalid")
     conv = (await client.get(f"/api/v1/projects/{pid}/conversation", headers=h)).json()
@@ -151,8 +161,9 @@ async def test_vertical_slice_desk_scenario(client: AsyncClient, settings: Setti
     await _complete(client, spec.job_id, success=True, intent="export", reply="Here you go.")
     exported = (await client.get(f"/api/v1/projects/{pid}/conversation", headers=h)).json()["messages"][-1]
     assert exported["metadata"]["export_version_number"] == 1 and exported["metadata"]["export_version_id"]
-    ctx = await _modeling_turn(client, worker, h, pid, "Make the legs black metal",
-                               black_metal_legs_batch()["operations"])
+    ctx = await _modeling_turn(
+        client, worker, h, pid, "Make the legs black metal", black_metal_legs_batch()["operations"]
+    )
     # The second turn saw the first version's inventory and the prior conversation.
     assert ctx["version_number"] == 1 and ctx["inventory"]["objects"]
     assert [t["role"] for t in ctx["history"]] == ["user", "assistant"] * 2

@@ -35,9 +35,9 @@ class BackendClient:
                 delay = min(delay * 2, 15)
         raise BackendUnavailable(str(last))
 
-    def start(self, job_id: uuid.UUID, worker_id: str) -> JobStartResponse:
+    def start(self, job_id: uuid.UUID, worker_id: str, *, reclaim: bool = False) -> JobStartResponse:
         return JobStartResponse.model_validate(
-            self._post(f"/internal/v1/jobs/{job_id}/start", {"worker_id": worker_id})
+            self._post(f"/internal/v1/jobs/{job_id}/start", {"worker_id": worker_id, "reclaim": reclaim})
         )
 
     def complete(self, result: BlenderJobResult) -> dict:

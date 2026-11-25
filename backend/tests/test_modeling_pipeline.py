@@ -31,6 +31,7 @@ def pipeline_settings(tmp_path: Path) -> Settings:
         rate_limit_jobs_per_minute=1000,
         internal_service_token=TOKEN,
         data_root=str(tmp_path),
+        maintenance_enabled=False,
     )
 
 

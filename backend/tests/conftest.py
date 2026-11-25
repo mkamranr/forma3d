@@ -23,6 +23,7 @@ def settings() -> Settings:
         jwt_secret="test-secret-test-secret-test-secret",
         log_level="WARNING",
         rate_limit_auth_per_minute=1000,
+        maintenance_enabled=False,  # tests call Maintenance directly (shared in-memory SQLite connection)
     )
 
 

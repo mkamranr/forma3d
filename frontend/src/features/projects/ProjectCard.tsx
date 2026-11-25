@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Project } from '../../types/api'
 import { relativeTime } from '../../utils/format'
-import { useAssetObjectUrl } from '../../components/versions/HistoryStrip'
+import { useAssetObjectUrl } from '../../hooks/useAssetObjectUrl'
 
 type Props = {
   project: Project

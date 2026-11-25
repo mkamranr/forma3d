@@ -232,3 +232,31 @@ Living record of decisions beyond `project-specification.md`. Update as phases l
   backend `test_outputs.py`; agent `test_advanced.py` (cabinet, office chair, hole, light, glass, texture,
   export/render intents, world rotations); frontend `Outputs.test.tsx`. End to end with real Blender
   (FakeProvider and vLLM `agents-a1`).
+
+## Phase 8 — Hardening and operations
+
+- **Job recovery**: `backend/app/services/maintenance.py` runs a leader-elected loop (`SET NX EX` on
+  `maintenance:leader`) that fails jobs past their deadline (`job_deadline`: queued / staged / running per
+  type, plus grace), discards abandoned staged results, releases project locks with no active job and
+  applies retention. Agent timeouts go through `ConversationService.complete`, so the chat gets a reply.
+- **Reclaim without double work**: Blender workers refresh their in-flight stream entry (`XCLAIM ... JUSTID`)
+  from the heartbeat, so `XAUTOCLAIM` only takes entries of dead workers. `POST /internal/v1/jobs/{id}/start`
+  with `reclaim=true` re-runs a `running` job only when the previous worker's heartbeat key is gone
+  (`reason=rerun`, `diagnostics.reruns`), otherwise answers `running_elsewhere` and the entry stays pending.
+- **Secrets**: `forma3d_shared.secrets` reads `NAME_FILE`, then `$SECRETS_DIR/name` (`/run/secrets`); the
+  database password secret is injected into the SQLAlchemy and checkpoint URLs. Production refuses default
+  or short secrets. Blender subprocesses get an allowlisted environment (`blender_env`).
+- **Observability**: `/metrics` (Prometheus text, optional bearer token, internal only) with HTTP metrics by
+  route template, job/queue/worker/LLM/disk gauges; `/health/ready` reports `degraded` with reasons. Agent
+  workers publish `workers:agent:{id}:llm` from a `GET /models` probe.
+- **Containers**: read-only root filesystems, tmpfs scratch, `cap_drop: ALL`, `no-new-privileges`, PID and
+  CPU/memory limits, rotated JSON logs, replica counts from `.env`. Overlays for file secrets, NVIDIA GPU
+  rendering (`F3D_CYCLES_DEVICE`, CPU fallback) and Prometheus.
+- **Operations scripts** (`deployment/scripts/`): `generate-secrets.sh`, `backup.sh` / `restore.sh`
+  (pg_dump -Fc + volume tar, checksummed), `offline-bundle.sh` / `offline-install.sh` (docker save +
+  `images.lock` with image IDs, verified on load).
+- **Frontend**: security headers + CSP in nginx, `/internal/` and `/metrics` blocked; code split so the
+  dashboard loads ≈85 kB gzip and three.js (`vendor-3d`) only with the workspace; expired renders/exports
+  offer a re-run.
+- **Tests**: backend `test_hardening.py` (sweeper, reclaim, locks, retention, leader, metrics, secrets);
+  blender worker reclaim / keepalive / environment tests.

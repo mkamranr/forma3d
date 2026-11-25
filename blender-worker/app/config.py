@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from forma3d_shared.constants.limits import ModelingLimits
+from forma3d_shared.secrets import env_secret
 
 APP_DIR = Path(__file__).resolve().parent
 
@@ -26,6 +27,8 @@ class WorkerConfig:
     keep_failed_workspaces: bool = False
     terminate_grace_seconds: float = 5.0
     liveness_file: Path = Path("/tmp/worker-alive")
+    #: a pending job whose worker stopped heartbeating for this long is taken over by another worker
+    reclaim_idle_seconds: int = 90
 
     @classmethod
     def from_env(cls) -> WorkerConfig:
@@ -33,7 +36,7 @@ class WorkerConfig:
         return cls(
             redis_url=env("REDIS_URL", cls.redis_url),
             backend_url=env("BACKEND_INTERNAL_URL", cls.backend_url),
-            internal_token=env("INTERNAL_SERVICE_TOKEN", cls.internal_token),
+            internal_token=env_secret("INTERNAL_SERVICE_TOKEN", cls.internal_token),
             data_root=Path(env("DATA_ROOT", "/data")),
             work_root=Path(env("WORK_ROOT", "/tmp/forma3d-jobs")),
             blender_bin=env("BLENDER_BIN", cls.blender_bin),
@@ -41,4 +44,5 @@ class WorkerConfig:
             limits=ModelingLimits.from_env(),
             keep_failed_workspaces=env("KEEP_FAILED_WORKSPACES", "false").lower() == "true",
             liveness_file=Path(env("LIVENESS_FILE", "/tmp/worker-alive")),
+            reclaim_idle_seconds=max(30, int(env("RECLAIM_IDLE_SECONDS", "90"))),
         )

@@ -50,6 +50,40 @@ class JobError(Exception):
         self.failed_operation_id = failed_operation_id
 
 
+#: Variables Blender may see. Everything else (INTERNAL_SERVICE_TOKEN, REDIS_URL, ...) is withheld.
+BLENDER_ENV_ALLOW = (
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "TZ",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    "SYSTEMROOT",
+    "WINDIR",
+    "PATHEXT",
+    "COMSPEC",
+    "USERPROFILE",
+    "LOCALAPPDATA",
+    "APPDATA",  # Windows dev
+    "OCIO",
+    "NVIDIA_VISIBLE_DEVICES",
+    "NVIDIA_DRIVER_CAPABILITIES",
+    "CUDA_VISIBLE_DEVICES",
+    "F3D_CYCLES_DEVICE",
+    "OMP_NUM_THREADS",
+)
+
+
+def blender_env(workspace: Path, source: dict[str, str] | None = None) -> dict[str, str]:
+    src = os.environ if source is None else source
+    env = {k: v for k, v in src.items() if k in BLENDER_ENV_ALLOW}
+    env["BLENDER_USER_CONFIG"] = str(workspace / ".blender-config")
+    env["BLENDER_USER_SCRIPTS"] = str(workspace / ".blender-scripts")
+    return env
+
+
 def batch_digest(operations: list[dict]) -> str:
     return hashlib.sha256(
         json.dumps({"schema_version": "1.0", "operations": operations}, sort_keys=True, separators=(",", ":")).encode()
@@ -170,10 +204,8 @@ def execute_job(
             encoding="utf-8",
         )
 
-        # 5. Run Blender
-        env = dict(os.environ)
-        env.setdefault("BLENDER_USER_CONFIG", str(workspace / ".blender-config"))
-        env.setdefault("BLENDER_USER_SCRIPTS", str(workspace / ".blender-scripts"))
+        # 5. Run Blender with a minimal environment: never the worker's secrets (spec §15.17).
+        env = blender_env(workspace)
         run = run_blender(
             blender_command(cfg.blender_bin, cfg.runtime_main, job_file),
             timeout_seconds=min(spec.timeout_seconds, cfg.limits.job_timeout_seconds),

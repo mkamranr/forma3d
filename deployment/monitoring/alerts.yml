@@ -1,0 +1,38 @@
+# Starting points; tune the thresholds to your load.
+groups:
+  - name: forma3d
+    rules:
+      - alert: Forma3DBackendDown
+        expr: up{job="forma3d-backend"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "Backend /metrics not reachable" }
+      - alert: Forma3DNoBlenderWorker
+        expr: max(forma3d_workers_alive{kind="blender"}) == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "No Blender worker heartbeat: models cannot be built" }
+      - alert: Forma3DNoAgentWorker
+        expr: max(forma3d_workers_alive{kind="agent"}) == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "No agent worker heartbeat: chat cannot answer" }
+      - alert: Forma3DLLMUnreachable
+        expr: max(forma3d_llm_reachable) == 0
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "Agent workers cannot reach the LLM endpoint" }
+      - alert: Forma3DQueueBacklog
+        expr: max(forma3d_queue_waiting) > 10
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Jobs are waiting for workers; consider more BLENDER_WORKERS" }
+      - alert: Forma3DJobFailures
+        expr: increase(forma3d_jobs{status="failed"}[30m]) > 5
+        labels: { severity: warning }
+        annotations: { summary: "Several jobs failed in the last 30 minutes" }
+      - alert: Forma3DDiskLow
+        expr: min(forma3d_data_disk_bytes{kind="free"} / forma3d_data_disk_bytes{kind="total"}) < 0.10
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Project data volume has less than 10% free space" }

@@ -1,0 +1,21 @@
+# Optional GPU profile (spec §14.5): NVIDIA GPUs for Blender rendering. Needs the NVIDIA driver and the
+# NVIDIA Container Toolkit on the Docker host. Modeling never needs a GPU; without one, Cycles uses the CPU.
+#   docker compose --env-file .env -f deployment/docker-compose.yml -f deployment/docker-compose.gpu.yml up -d
+#
+# F3D_CYCLES_DEVICE: OPTIX (RTX cards) or CUDA. If Blender finds no matching device it falls back to the
+# CPU silently, so a misconfigured host still renders (slower). Set RENDER_EEVEE_ENABLED=true in .env to
+# offer the Eevee engine as well (it needs a working GPU/EGL context; check a test render first).
+
+services:
+  blender-worker:
+    environment:
+      F3D_CYCLES_DEVICE: ${F3D_CYCLES_DEVICE:-OPTIX}
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: compute,graphics,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-1}
+              capabilities: [gpu, compute, graphics, utility]

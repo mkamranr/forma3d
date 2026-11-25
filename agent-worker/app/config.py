@@ -5,6 +5,8 @@ import socket
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from forma3d_shared.secrets import env_secret, with_password
+
 from .providers.base import LLMProvider
 
 #: LLM-backed agents. Each may use its own model (LLM_MODEL_<AGENT>), falling back to LLM_MODEL;
@@ -40,14 +42,14 @@ class AgentConfig:
         return cls(
             redis_url=env("REDIS_URL", cls.redis_url),
             backend_url=env("BACKEND_INTERNAL_URL", cls.backend_url),
-            internal_token=env("INTERNAL_SERVICE_TOKEN", cls.internal_token),
+            internal_token=env_secret("INTERNAL_SERVICE_TOKEN", cls.internal_token),
             worker_id=env("WORKER_ID", f"agent-{socket.gethostname()}"),
             liveness_file=Path(env("LIVENESS_FILE", "/tmp/worker-alive")),
             llm_provider=env("LLM_PROVIDER", cls.llm_provider).lower(),
             llm_base_url=env("LLM_BASE_URL", cls.llm_base_url),
             llm_model=env("LLM_MODEL", cls.llm_model),
             agent_models={a: m for a in LLM_AGENTS if (m := env(f"LLM_MODEL_{a.upper()}"))},
-            llm_api_key=env("LLM_API_KEY", ""),
+            llm_api_key=env_secret("LLM_API_KEY", ""),
             llm_temperature=float(env("LLM_TEMPERATURE", "0.2")),
             llm_max_tokens=int(env("LLM_MAX_TOKENS", "8192")),
             llm_timeout_seconds=float(env("LLM_TIMEOUT_SECONDS", "120")),
@@ -56,7 +58,10 @@ class AgentConfig:
             max_retries=int(env("AGENT_MAX_RETRIES", "2")),
             max_revisions=int(env("AGENT_MAX_REVISIONS", "2")),
             modeling_wait_seconds=int(env("JOB_TIMEOUT_SECONDS", "300")) + 300,
-            checkpoint_url=env("CHECKPOINT_URL", cls.checkpoint_url),
+            checkpoint_url=with_password(
+                env("CHECKPOINT_URL", cls.checkpoint_url),
+                env_secret("DATABASE_PASSWORD") or env_secret("POSTGRES_PASSWORD"),
+            ),
         )
 
     def model_for(self, agent: str) -> str:

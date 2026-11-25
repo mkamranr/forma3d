@@ -8,7 +8,7 @@ import type { ExportFormat, Output, RenderQuality, Unit } from '../../types/scen
 import { relativeTime } from '../../utils/format'
 import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
-import { useAssetObjectUrl } from '../versions/HistoryStrip'
+import { useAssetObjectUrl } from '../../hooks/useAssetObjectUrl'
 
 export const FORMATS: { id: ExportFormat; label: string; hint: string; ext: string }[] = [
   { id: 'glb', label: 'GLB', hint: 'Web, AR and game engines — one file with textures', ext: 'glb' },
@@ -82,6 +82,12 @@ export function OutputChip({ kind, id, projectName }: { kind: OutputKind; id: st
   const out = output.data
   if (output.isError) return <div className="chat-chip muted">{errorMessage(output.error)}</div>
   if (!out || PENDING.has(out.status)) return out ? <Progress out={out} kind={kind} /> : <Progress out={{ status: 'queued' } as Output} kind={kind} />
+  if (out.status === 'succeeded' && !out.url)
+    return (
+      <div className="chat-chip muted" title="Old renders and exports are removed after the retention period">
+        <AlertTriangle size={12} /> This {kind === 'render' ? 'render' : 'file'} has expired — {kind === 'render' ? 'render' : 'export'} again
+      </div>
+    )
   if (out.status !== 'succeeded' || !out.url)
     return (
       <div className="chat-chip muted" title={out.error_message ?? ''}>
@@ -258,11 +264,11 @@ export function RenderDialog({ open, onClose, projectName }: { open: boolean; on
                 <button
                   key={r.id}
                   className="render-tile"
-                  disabled={r.status !== 'succeeded'}
+                  disabled={r.status !== 'succeeded' || !r.url}
                   onClick={() => void run(r, 'render')}
                   title={r.status === 'succeeded' ? 'Download PNG' : r.error_message ?? r.status}
                 >
-                  {r.status === 'succeeded' ? (
+                  {r.status === 'succeeded' && r.url ? (
                     <RenderImage out={r} />
                   ) : PENDING.has(r.status) ? (
                     <div className="render-image empty"><Loader2 size={16} className="spin" /></div>

@@ -23,6 +23,9 @@ from forma3d_shared.schemas.job import BlenderJobResult, JobStartResponse
 
 log = get_logger(__name__)
 
+#: `start` reply telling a reclaiming worker to leave the message pending (its owner is alive)
+RUNNING_ELSEWHERE = "running_elsewhere"
+
 
 def _staged_artifacts_problem(storage: ProjectStorage, staging_dir: str, result: BlenderJobResult) -> str | None:
     if not staging_dir:
@@ -78,6 +81,21 @@ class JobService:
             await self.session.commit()
             log.info("job.reclaimed", job_id=str(job.id), worker_id=worker_id)
             return JobStartResponse(proceed=True, reason="resumed")
+        if reclaim and job.job_type != "agent" and job.status == "running":
+            # Blender jobs are idempotent per job id (staging/derived dirs are rewritten), so a job whose
+            # worker died is simply run again. A worker that still heartbeats keeps its job.
+            previous = job.worker_id or ""
+            if previous and previous != worker_id and await self.redis.exists(f"workers:blender:{previous}"):
+                return JobStartResponse(proceed=False, reason=RUNNING_ELSEWHERE)
+            job.worker_id = worker_id[:64]
+            job.started_at = utcnow()
+            job.diagnostics = {**job.diagnostics, "reruns": int(job.diagnostics.get("reruns", 0)) + 1}
+            await self.session.commit()
+            log.warning("job.rerun", job_id=str(job.id), worker_id=worker_id, previous_worker=previous)
+            await self.events.publish(
+                job.id, "blender.progress", stage="blender", message="Restarted on another worker"
+            )
+            return JobStartResponse(proceed=True, reason="rerun")
         if job.status != "queued":
             return JobStartResponse(proceed=False, reason=f"job is {job.status}")
         job.status = "running"
@@ -180,7 +198,11 @@ class JobService:
             await self._fail(job, batch, "artifact_mismatch", f"Staged artifacts failed verification: {reason}")
             return False
         job.status = "staged"
-        job.payload = {**job.payload, "staged_result": result.model_dump(mode="json")}
+        job.payload = {
+            **job.payload,
+            "staged_result": result.model_dump(mode="json"),
+            "staged_at": utcnow().isoformat(),
+        }
         job.progress = {"stage": "review", "message": "Checking the result"}
         if batch is not None:
             batch.execution_status = "staged"

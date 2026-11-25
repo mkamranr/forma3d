@@ -5,7 +5,7 @@ import { useWorkspaceScene } from '../../features/modeling/WorkspaceContext'
 import { editMaterial, editObject, giveObjectMaterial } from '../../services/scene'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { TEXTURE_PATTERNS, type MaterialPatch, type SceneMaterial, type TextureImage } from '../../types/scene'
-import { useAssetObjectUrl } from '../versions/HistoryStrip'
+import { useAssetObjectUrl } from '../../hooks/useAssetObjectUrl'
 
 const PATTERN_LABELS: Record<string, string> = { brushed_metal: 'Brushed metal' }
 const patternLabel = (p: string) => PATTERN_LABELS[p] ?? p[0].toUpperCase() + p.slice(1)

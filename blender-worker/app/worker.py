@@ -3,7 +3,10 @@ streams progress events and reports structured results to the backend.
 
 Reliability:
 - Redis Streams consumer group; a message is ACKed only after the backend accepted the result.
-- On startup, messages left pending by a crashed worker are reclaimed (XAUTOCLAIM).
+- Messages left pending by a crashed worker are reclaimed (XAUTOCLAIM, every minute) by any live worker.
+  While a job runs, the heartbeat keeps its stream entry fresh (XCLAIM JUSTID), so with several
+  replicas a long render is never taken over while its worker is alive; the backend re-runs a
+  reclaimed job only when the previous worker's heartbeat is gone.
 - The backend's /start claim deduplicates: jobs already finished/cancelled are dropped.
 - One active Blender job at a time (spec §14.4).
 """
@@ -45,6 +48,7 @@ class Worker:
         self.redis = r or redis.Redis.from_url(cfg.redis_url, decode_responses=True)
         self.backend = backend or BackendClient(cfg.backend_url, cfg.internal_token)
         self.stop = threading.Event()
+        self.current_msg: str | None = None  # stream entry being processed (kept fresh by the heartbeat)
 
     # ------------------------------------------------------------------ infra
     def ensure_group(self) -> None:
@@ -58,6 +62,15 @@ class Worker:
         while not self.stop.is_set():
             try:
                 self.redis.set(f"workers:blender:{self.cfg.worker_id}", int(time.time()), ex=45)
+                if self.current_msg:  # keep the in-flight entry's idle time low -> not reclaimable
+                    self.redis.xclaim(
+                        BLENDER_JOB_STREAM,
+                        BLENDER_JOB_GROUP,
+                        self.cfg.worker_id,
+                        min_idle_time=0,
+                        message_ids=[self.current_msg],
+                        justid=True,
+                    )
                 self.cfg.liveness_file.write_text(str(int(time.time())))
             except Exception as exc:
                 log("worker.heartbeat_failed", error=type(exc).__name__)
@@ -71,7 +84,14 @@ class Worker:
             log("worker.emit_failed", job_id=str(job_id), error=type(exc).__name__)
 
     # ------------------------------------------------------------------ jobs
-    def handle(self, msg_id: str, fields: dict[str, str]) -> None:
+    def handle(self, msg_id: str, fields: dict[str, str], *, reclaim: bool = False) -> None:
+        self.current_msg = msg_id
+        try:
+            self._handle(msg_id, fields, reclaim=reclaim)
+        finally:
+            self.current_msg = None
+
+    def _handle(self, msg_id: str, fields: dict[str, str], *, reclaim: bool) -> None:
         try:
             spec = BlenderJobSpec.model_validate_json(fields["job"])
         except Exception as exc:
@@ -80,7 +100,10 @@ class Worker:
             return
 
         job_id = spec.job_id
-        claim = self.backend.start(job_id, self.cfg.worker_id)
+        claim = self.backend.start(job_id, self.cfg.worker_id, reclaim=reclaim)
+        if not claim.proceed and claim.reason == "running_elsewhere":
+            log("job.left_pending", job_id=str(job_id), reason=claim.reason)  # its owner is alive
+            return
         if not claim.proceed:
             log("job.skipped", job_id=str(job_id), reason=claim.reason)
             self.redis.xack(BLENDER_JOB_STREAM, BLENDER_JOB_GROUP, msg_id)
@@ -119,18 +142,18 @@ class Worker:
         self.redis.xack(BLENDER_JOB_STREAM, BLENDER_JOB_GROUP, msg_id)
 
     def reclaim_pending(self) -> None:
-        idle_ms = (self.cfg.limits.job_timeout_seconds + 120) * 1000
+        idle_ms = self.cfg.reclaim_idle_seconds * 1000
         _next, messages, *_ = self.redis.xautoclaim(
             BLENDER_JOB_STREAM, BLENDER_JOB_GROUP, self.cfg.worker_id, min_idle_time=idle_ms, start_id="0-0", count=10
         )
         for msg_id, fields in messages:
             if fields:
                 log("job.reclaimed", msg_id=msg_id)
-                self._safe_handle(msg_id, fields)
+                self._safe_handle(msg_id, fields, reclaim=True)
 
-    def _safe_handle(self, msg_id: str, fields: dict[str, str]) -> None:
+    def _safe_handle(self, msg_id: str, fields: dict[str, str], *, reclaim: bool = False) -> None:
         try:
-            self.handle(msg_id, fields)
+            self.handle(msg_id, fields, reclaim=reclaim)
         except BackendUnavailable as exc:
             log("job.backend_unavailable", msg_id=msg_id, error=str(exc)[:200])
         except Exception as exc:

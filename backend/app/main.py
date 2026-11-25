@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -16,6 +17,7 @@ from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging, get_logger
 from app.database.session import Database
 from app.middleware.correlation import CorrelationIdMiddleware
+from app.services.maintenance import Maintenance, maintenance_loop
 from app.services.rate_limit import MemoryRateLimiter, RateLimiter, RedisRateLimiter
 from app.services.storage import ProjectStorage
 from app.services.version_service import reconcile_storage
@@ -48,9 +50,22 @@ def create_app(
                 )
         except Exception as exc:  # never block startup on recovery
             log.warning("storage.reconcile_failed", error=type(exc).__name__)
+        stop = asyncio.Event()
+        sweeper = None
+        if settings.maintenance_enabled and app.state.redis is not None:
+            maintenance = Maintenance(
+                app.state.db.sessionmaker, app.state.redis, settings, ProjectStorage(settings.data_root)
+            )
+            sweeper = asyncio.create_task(maintenance_loop(maintenance, stop))
         try:
             yield
         finally:
+            stop.set()
+            if sweeper is not None:
+                try:
+                    await asyncio.wait_for(sweeper, timeout=10)
+                except (asyncio.TimeoutError, Exception):  # noqa: UP041
+                    sweeper.cancel()
             if db is None:
                 await app.state.db.dispose()
             if redis is None and app.state.redis is not None:

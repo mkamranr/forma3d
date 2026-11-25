@@ -10,10 +10,24 @@ import structlog
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.logging import get_logger
+from app.services.metrics import HTTP
 
 HEADER = "x-request-id"
 _VALID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 log = get_logger("http")
+
+
+def _route_template(scope: Scope) -> str:
+    """Full route template ("/api/v1/projects/{project_id}") for metrics labels: bounded cardinality,
+    never raw ids. `scope["route"].path` is relative to its router, so the router prefixes (static
+    segments such as /api/v1) are taken from the front of the request path."""
+    template = getattr(scope.get("route"), "path", None)
+    if not template:
+        return "unmatched"
+    segments = scope.get("path", "").strip("/").split("/")
+    t_segments = template.strip("/").split("/")
+    prefix = segments[: max(0, len(segments) - len(t_segments))]
+    return "/" + "/".join([*prefix, *t_segments]).strip("/")
 
 
 class CorrelationIdMiddleware:
@@ -45,12 +59,17 @@ class CorrelationIdMiddleware:
             await self.app(scope, receive, send_wrapper)
         finally:
             path = scope.get("path", "")
+            elapsed = time.perf_counter() - started
+            # Route *templates* only (bounded label set); unmatched paths are pooled.
+            route = _route_template(scope)
+            if route not in ("/metrics", "/health", "/health/ready"):
+                HTTP.observe(scope.get("method", ""), route, status_code, elapsed)
             if not path.startswith("/health"):
                 log.info(
                     "http.request",
                     method=scope.get("method"),
                     path=path,
                     status=status_code,
-                    duration_ms=round((time.perf_counter() - started) * 1000, 1),
+                    duration_ms=round(elapsed * 1000, 1),
                 )
             structlog.contextvars.clear_contextvars()

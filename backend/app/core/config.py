@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from forma3d_shared.secrets import file_secret, with_password
 
 
 class Settings(BaseSettings):
@@ -40,10 +42,49 @@ class Settings(BaseSettings):
     max_pending_outputs: int = Field(default=4, ge=1, le=100)
     staging_orphan_minutes: int = 60
 
+    # Phase 8: recovery and retention (app/services/maintenance.py)
+    maintenance_enabled: bool = True
+    maintenance_interval_seconds: int = Field(default=60, ge=5, le=3600)
+    #: extra time past a job's own timeout before the sweeper fails it (worker kill + upload)
+    job_grace_seconds: int = Field(default=300, ge=30, le=7200)
+    #: a whole agent turn (LLM calls, revisions, Blender runs)
+    agent_job_timeout_seconds: int = Field(default=3600, ge=60, le=86400)
+    #: jobs nobody picked up (workers down) fail after this long, so the UI does not wait forever
+    queued_job_timeout_seconds: int = Field(default=3600, ge=60, le=86400)
+    #: a staged result the agent never committed or discarded
+    staged_job_timeout_seconds: int = Field(default=1800, ge=60, le=86400)
+    #: soft-deleted projects (files + rows) are purged after this many days; 0 disables
+    deleted_project_retention_days: int = Field(default=30, ge=0, le=3650)
+    #: render/export files are removed after this many days (versions are never purged); 0 disables
+    output_retention_days: int = Field(default=30, ge=0, le=3650)
+    #: optional bearer token for GET /metrics (the endpoint is never proxied publicly)
+    metrics_token: str = ""
+
     rate_limit_auth_per_minute: int = 20
     rate_limit_jobs_per_minute: int = 10
 
     cors_origins: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _secrets(self) -> Settings:
+        """JWT_SECRET, INTERNAL_SERVICE_TOKEN and DATABASE_PASSWORD may come from `NAME_FILE` or
+        `/run/secrets/name` (Compose secrets) instead of plain environment variables."""
+        for field, env_name in (("jwt_secret", "JWT_SECRET"), ("internal_service_token", "INTERNAL_SERVICE_TOKEN")):
+            value = file_secret(env_name)  # plain env vars are already read by pydantic-settings
+            if value:
+                object.__setattr__(self, field, value)
+        password = file_secret("DATABASE_PASSWORD") or file_secret("POSTGRES_PASSWORD")
+        if password:
+            object.__setattr__(self, "database_url", with_password(self.database_url, password))
+        if self.is_production:
+            weak = [
+                n
+                for n, v in (("JWT_SECRET", self.jwt_secret), ("INTERNAL_SERVICE_TOKEN", self.internal_service_token))
+                if "change-me" in v or len(v) < 24
+            ]
+            if weak:
+                raise ValueError(f"production needs strong secrets (24+ chars, not the defaults): {', '.join(weak)}")
+        return self
 
     @property
     def is_production(self) -> bool:

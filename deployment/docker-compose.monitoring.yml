@@ -1,0 +1,33 @@
+# Optional: Prometheus on the internal network, scraping the backend's /metrics.
+#   echo -n "$METRICS_TOKEN" > deployment/monitoring/metrics_token   # same value as in .env (may be empty)
+#   docker compose --env-file .env -f deployment/docker-compose.yml -f deployment/docker-compose.monitoring.yml up -d
+# The UI binds to 127.0.0.1:9090 on the Docker host only (use an SSH tunnel or your own proxy).
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./monitoring/metrics_token:/etc/prometheus/metrics_token:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    networks: [data, monitoring]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M }
+
+networks:
+  monitoring: {}  # publishes the UI port (the `data` network is internal-only)
+
+volumes:
+  prometheus_data:

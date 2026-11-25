@@ -95,7 +95,9 @@ describe('exports, renders, lights and textures (Phase 7)', () => {
           chatMessage({ id: 'm1', role: 'assistant', content: 'Preparing your OBJ file', metadata: { action: 'export', output_job_id: 'e2', export_format: 'obj' } }),
           chatMessage({ id: 'm2', role: 'assistant', content: 'Rendering your model now.', metadata: { action: 'render', output_job_id: 'r1' } }),
           chatMessage({ id: 'm3', role: 'assistant', content: 'Cannot render', metadata: { action: 'render', output_error: 'Nothing to render yet' } }),
+          chatMessage({ id: 'm4', role: 'assistant', content: 'Old STL', metadata: { action: 'export', output_job_id: 'e9' } }),
         ])),
+      'GET /api/v1/exports/e9': () => json(200, output({ id: 'e9', url: null })),
       'GET /api/v1/exports/e2': () => json(200, output({ id: 'e2', settings: { format: 'obj' } })),
       'GET /api/v1/renders/r1': () => json(200, output({ id: 'r1', settings: { quality: 'standard' }, url: '/api/v1/renders/r1/image' })),
       'GET /api/v1/renders/r1/image': () => png(),
@@ -105,6 +107,7 @@ describe('exports, renders, lights and textures (Phase 7)', () => {
     expect(await screen.findByRole('button', { name: /Download PNG · v1/ })).toBeInTheDocument()
     expect(await screen.findByAltText('Render of version 1')).toHaveAttribute('src', 'blob:x')
     expect(screen.getByText('Nothing to render yet')).toBeInTheDocument()
+    expect(await screen.findByText(/This file has expired/)).toBeInTheDocument() // purged by retention
   })
 
   it('starts a render with the chosen quality, size and camera', async () => {
