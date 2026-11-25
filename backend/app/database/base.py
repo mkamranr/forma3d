@@ -3,13 +3,28 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import JSON, DateTime, MetaData, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
 
 from app.core.time import utcnow
+
+
+class UTCDateTime(TypeDecorator):
+    """timestamptz that always comes back timezone-aware (UTC). PostgreSQL already does this;
+    SQLite (tests, local dev runner) drops tzinfo, which made clients render local-time offsets."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_result_value(self, value, dialect):  # type: ignore[override]
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
 
 # JSONB on PostgreSQL, JSON elsewhere.
 JSONType = JSON().with_variant(JSONB(), "postgresql")
@@ -33,11 +48,11 @@ class UUIDPk:
 
 class CreatedAt:
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+        UTCDateTime(), default=utcnow, server_default=func.now(), nullable=False
     )
 
 
 class Timestamps(CreatedAt):
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now(), nullable=False
+        UTCDateTime(), default=utcnow, onupdate=utcnow, server_default=func.now(), nullable=False
     )

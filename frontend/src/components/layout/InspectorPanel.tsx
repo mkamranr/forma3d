@@ -1,4 +1,5 @@
 import { Layers3, PanelRightClose, SlidersHorizontal } from 'lucide-react'
+import { useWorkspaceScene } from '../../features/modeling/WorkspaceContext'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { SceneTree } from '../hierarchy/SceneTree'
 import { MaterialsPanel } from '../materials/MaterialsPanel'
@@ -6,6 +7,8 @@ import { PropertiesPanel } from '../properties/PropertiesPanel'
 
 export function InspectorPanel() {
   const activeTab = useWorkspaceStore((s) => s.activeTab)
+  const activeJob = useWorkspaceStore((s) => s.activeJob)
+  const { version } = useWorkspaceScene()
   const { setActiveTab, setShowInspector } = useWorkspaceStore.getState()
 
   return (
@@ -32,8 +35,11 @@ export function InspectorPanel() {
       <div className="inspector-bottom">
         <div className="blender-status">
           <span className="blender-mark">B</span>
-          <div><strong>Blender Engine</strong><small>Connection not configured</small></div>
-          <span className="offline-pill">DEMO</span>
+          <div>
+            <strong>Blender Engine</strong>
+            <small>{activeJob ? activeJob.message : version ? `Scene v${version.version_number} · ${version.object_count} objects` : 'Idle · no scene yet'}</small>
+          </div>
+          <span className={activeJob ? 'online-pill busy' : 'online-pill'}>{activeJob ? 'BUILDING' : 'READY'}</span>
         </div>
       </div>
     </aside>

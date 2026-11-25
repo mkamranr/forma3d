@@ -4,10 +4,10 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, Uuid
+from sqlalchemy import ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database.base import Base, CreatedAt, JSONType, UUIDPk
+from app.database.base import Base, CreatedAt, JSONType, UTCDateTime, UUIDPk
 
 
 class ModelingPlan(UUIDPk, CreatedAt, Base):
@@ -37,4 +37,4 @@ class OperationBatch(UUIDPk, CreatedAt, Base):
     summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
     validation_result: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
     execution_status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False, index=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())

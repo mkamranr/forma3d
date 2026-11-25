@@ -3,11 +3,13 @@ import { Link } from 'react-router-dom'
 import { UserMenu } from './UserMenu'
 
 type Props = {
-  version: number
+  version: number | null
+  /** Progress message while a Blender job is running. */
+  building: string | null
   onExport: () => void
 }
 
-export function TopBar({ version, onExport }: Props) {
+export function TopBar({ version, building, onExport }: Props) {
   return (
     <header className="topbar">
       <Link to="/" className="brand" style={{ color: 'inherit', textDecoration: 'none' }} title="Back to projects">
@@ -17,15 +19,15 @@ export function TopBar({ version, onExport }: Props) {
         <span className="workspace-name">Studio workspace <ChevronDown size={14} /></span>
       </Link>
       <div className="top-center">
-        <span className="save-dot"></span>
-        <span>All changes saved</span>
+        <span className={`save-dot ${building ? 'busy' : ''}`}></span>
+        <span>{building ? `Building · ${building}` : 'All changes saved'}</span>
         <span className="top-sep">·</span>
-        <span>Version {version}.0</span>
+        <span>{version ? `Version ${version}` : 'No versions yet'}</span>
       </div>
       <div className="top-actions">
         <button className="icon-btn" title="Help"><CircleHelp size={17} /></button>
         <button className="icon-btn" title="Settings"><Settings2 size={17} /></button>
-        <button className="share-btn" onClick={onExport}><Download size={15} /> Export</button>
+        <button className="share-btn" onClick={onExport} disabled={!version} title="Download the current version as GLB"><Download size={15} /> Export GLB</button>
         <UserMenu />
       </div>
     </header>

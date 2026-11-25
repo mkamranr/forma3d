@@ -12,8 +12,8 @@ Full specification: [`project-specification.md`](project-specification.md).
 |---|---|---|
 | 1 | Infrastructure, auth, project CRUD, dashboard, health checks | **Done** (pending first run on the Docker host) |
 | 2 | Blender worker, modeling DSL v1, validator, GLB export, versioned commits | **Done** (pending first run on the Docker host) |
-| 3 | Interactive workspace wired to real scenes | Next |
-| 4 | LLM integration (vLLM) — end-to-end vertical slice | — |
+| 3 | Interactive workspace wired to real scenes | **Done** (pending first run on the Docker host) |
+| 4 | LLM integration (vLLM) — end-to-end vertical slice | Next |
 | 5–8 | LangGraph agents, conversational editing, advanced modeling, hardening | — |
 
 ## Repository layout
@@ -72,6 +72,13 @@ cd backend && BLENDER_BIN=/path/to/blender .venv/Scripts/python -m pytest -q tes
 
 Run one job spec without Redis/backend: `cd blender-worker && python -m app.run_once spec.json`.
 
+**Whole app without Docker** (SQLite + in-process fake Redis + real Blender; dev/demo only):
+
+```bash
+BLENDER_BIN=/path/to/blender backend/.venv/Scripts/python deployment/scripts/dev_local.py   # API on :8000
+cd frontend && npm run dev                                                                    # UI on :5173
+```
+
 Frontend (Node 20):
 
 ```bash
@@ -98,6 +105,15 @@ VITE_API_PROXY=http://localhost:8000 npm run dev
 | GET | `/api/v1/projects/{id}/versions` · `/versions/{vid}` | detail includes the scene inventory |
 | GET | `/api/v1/projects/{id}/versions/{vid}/assets/{kind}` | kind = glb, thumbnail, blend, inventory, operations; ownership-checked |
 | GET | `/api/v1/projects/{id}/thumbnail` | current head thumbnail |
+| GET | `/api/v1/projects/{id}/scene` | head version + inventory + active job |
+| POST | `/api/v1/projects/{id}/scene/starter` | sample desk for an empty project |
+| POST | `/api/v1/projects/{id}/scene/objects` | add a primitive `{kind, name?, location?}` |
+| PATCH/DELETE | `/api/v1/projects/{id}/scene/objects/{object_id}` | `{name, location, rotation, dimensions, visible, material_id}`; `?recursive=true` |
+| POST | `/api/v1/projects/{id}/scene/objects/{object_id}/material` | give one object its own material |
+| PATCH | `/api/v1/projects/{id}/scene/materials/{material_id}` | edit a (possibly shared) material |
+| POST | `/api/v1/projects/{id}/versions/{vid}/restore` | move the head; next edit branches from it |
+
+All scene edits compile to DSL and return 202 + `job_id`, exactly like `modeling/execute`.
 | POST | `/internal/v1/jobs/{id}/start` · `complete` | worker callbacks, `X-Internal-Token`, internal network only |
 
 DSL reference: [`docs/modeling-dsl.md`](docs/modeling-dsl.md). Try it after `make up` (token from login):
@@ -114,8 +130,12 @@ Interactive docs at `/api/docs` when `APP_ENV != production`.
 - Blender runs CPU-only (Cycles thumbnail at 384 px, a few seconds per job); GPU compose is Phase 8.
 - The Linux Blender image pins and checksum-verifies the official tarball but has not yet been built
   on the Docker host; all Blender tests so far ran against Blender 4.5.17 on Windows.
-- The workspace still runs the prototype's **local demo scene** and simulated assistant
-  (marked `DEMO`); wiring it to real versions is Phase 3, the LLM is Phase 4.
+- The chat assistant is a **rule-based preview** (add / recolour / resize / hide / delete) that runs
+  real edits through the pipeline; the LLM planner replaces it in Phase 4.
+- Every edit is a Blender job (≈5–20 s each, CPU thumbnail included); edits are disabled while one runs.
+- Gizmo resize previews scale children, but the committed `set_dimensions` only resizes the object's
+  own mesh, so children snap back when the new version loads.
+- Restore moves the head pointer; undo/redo shortcuts and version compare are Phase 6.
 - Project delete is a soft delete; file purge/retention job is Phase 8.
 - Duplicate still copies project metadata only (not versions); copying the head version is Phase 6.
 - Image tags are pinned; digest pinning and the offline bundle are Phase 8.

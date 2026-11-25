@@ -58,3 +58,30 @@ Living record of decisions beyond `project-specification.md`. Update as phases l
 - **Events**: Redis stream `events:{job_id}` (maxlen 1000, 24 h TTL after terminal); the SSE endpoint
   replays from `Last-Event-ID`, pings every 15 s and closes after a terminal event.
 - **Assets**: served only by kind via ownership-checked routes; storage paths are never returned.
+
+## Phase 3 — Interactive workspace on real scenes
+
+- **One write path**: inspector, hierarchy, gizmos and the (rule-based) chat call `/scene/*` endpoints
+  that compile edits into small DSL batches and reuse `ModelingService.submit_batch` — same validator,
+  project lock, Blender job and immutable version as everything else. No client-side scene copy.
+- **Server state** lives in TanStack Query (`scene`, `versions`, `model:{versionId}`); Zustand holds only
+  UI state (selection, tool, shading, projection, active job). GLBs are cached forever per version id
+  because versions are immutable.
+- **Assets with auth**: GLB/thumbnail routes require the bearer token, so the client fetches them
+  (`apiFetch`) and parses with `GLTFLoader.parseAsync` / object URLs — no tokens in URLs.
+- **Stable-ID picking**: glTF extras land in `userData.app_object_id`; clicks walk up to the nearest
+  ancestor with an id and skip hidden objects (hidden objects stay in the GLB so ids remain complete).
+- **Coordinates**: API values are Blender space (Z up, meters, world location, local Euler degrees);
+  conversion to three.js (Y up) happens only in the viewport (`utils/coords.ts`).
+- **Gizmos**: drei `TransformControls` preview locally; release commits `move_object {location}` or
+  `set_dimensions`. Failed/cancelled jobs rebuild the scene from the cached GLB. Fit-to-view measures
+  model meshes only (the gizmo's helper plane is effectively infinite).
+- **Job tracking**: fetch-based SSE (bearer header, `Last-Event-ID` reconnect, stops at terminal
+  events) with polling fallback; a job already running when the page loads is resumed from `/scene`.
+- **Materials**: shared materials are edited in place (UI says “shared by N objects”); “Make unique”
+  creates a per-object copy via `create_material` + `assign_material`.
+- **Restore** moves `projects.current_version_id` (under the project lock); the next edit's
+  `parent_version_id` is the restored version, so history branches instead of being rewritten.
+- **Timestamps**: `UTCDateTime` returns aware datetimes on every dialect (SQLite dropped tzinfo).
+- **Local runner**: `deployment/scripts/dev_local.py` runs the real API + a worker thread with real
+  Blender over an in-process fakeredis — used for the browser verification of this phase.

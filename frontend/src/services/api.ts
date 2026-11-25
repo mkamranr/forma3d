@@ -6,17 +6,19 @@ export const API_BASE = '/api/v1'
 export class ApiError extends Error {
   readonly status: number
   readonly code: string
+  readonly issues: { code: string; message: string; operation_id?: string | null }[]
 
-  constructor(status: number, message: string, code = 'error') {
+  constructor(status: number, message: string, code = 'error', issues: ApiError['issues'] = []) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.issues = issues
   }
 }
 
 type RequestOptions = {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
   /** Attach the access token and retry once through /auth/refresh on 401. */
   auth?: boolean
@@ -26,16 +28,21 @@ type RequestOptions = {
 async function parseError(res: Response): Promise<ApiError> {
   let message = res.statusText || 'Request failed'
   let code = 'error'
+  let issues: ApiError['issues'] = []
   try {
     const data = await res.json()
     if (typeof data?.detail === 'string') message = data.detail
     else if (Array.isArray(data?.detail) && data.detail[0]?.msg) message = String(data.detail[0].msg)
     if (typeof data?.code === 'string') code = data.code
     else if (res.status === 422) code = 'validation_error'
+    if (Array.isArray(data?.issues)) {
+      issues = data.issues
+      if (issues[0]?.message) message = `${message}: ${issues[0].message}`
+    }
   } catch {
     /* non-JSON body */
   }
-  return new ApiError(res.status, message, code)
+  return new ApiError(res.status, message, code, issues)
 }
 
 let refreshInFlight: Promise<boolean> | null = null
@@ -88,4 +95,22 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (!res.ok) throw await parseError(res)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
+}
+
+type FetchOptions = { signal?: AbortSignal; headers?: Record<string, string> }
+
+/** Authenticated GET returning the raw Response (binary assets, SSE streams). Throws ApiError on failure. */
+export async function apiFetch(path: string, { signal, headers = {} }: FetchOptions = {}): Promise<Response> {
+  const send = () => {
+    const token = useAuthStore.getState().accessToken
+    return fetch(`${API_BASE}${path}`, {
+      headers: { ...headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      credentials: 'same-origin',
+      signal,
+    })
+  }
+  let res = await send()
+  if (res.status === 401 && (await refreshSession())) res = await send()
+  if (!res.ok) throw await parseError(res)
+  return res
 }

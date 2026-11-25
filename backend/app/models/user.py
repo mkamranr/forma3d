@@ -3,10 +3,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Uuid
+from sqlalchemy import Boolean, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database.base import Base, CreatedAt, Timestamps, UUIDPk
+from app.database.base import Base, CreatedAt, Timestamps, UTCDateTime, UUIDPk
 
 
 class User(UUIDPk, Timestamps, Base):
@@ -29,6 +29,6 @@ class RefreshToken(UUIDPk, CreatedAt, Base):
     )
     family_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    rotated_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime())

@@ -1,13 +1,13 @@
-import { Box, Clock3, MoreHorizontal } from 'lucide-react'
+import { Box, History, MoreHorizontal } from 'lucide-react'
 import type { Project } from '../../types/api'
 import { relativeTime } from '../../utils/format'
 
 type Props = {
   project: Project | undefined
-  onSaveVersion: () => void
+  onOpenVersions: () => void
 }
 
-export function ProjectBar({ project, onSaveVersion }: Props) {
+export function ProjectBar({ project, onOpenVersions }: Props) {
   return (
     <div className="projectbar">
       <div className="project-title">
@@ -21,7 +21,9 @@ export function ProjectBar({ project, onSaveVersion }: Props) {
         </div>
       </div>
       <div className="project-actions">
-        <button className="soft-btn" onClick={onSaveVersion}><Clock3 size={14} /> Save version</button>
+        <button className="soft-btn" onClick={onOpenVersions} title="Every change is saved automatically as a version">
+          <History size={14} /> Versions{project ? ` · ${project.version_count}` : ''}
+        </button>
         <button className="icon-btn"><MoreHorizontal size={18} /></button>
       </div>
     </div>

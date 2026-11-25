@@ -1,16 +1,108 @@
+/** Blender-space vector: meters, Z up. Convert with utils/coords before using in three.js. */
 export type Vec3 = [number, number, number]
 
-export type PrimitiveKind = 'box' | 'sphere' | 'cylinder'
-
-/** Client-side scene object (demo scene until the Blender pipeline is wired in Phase 3). */
-export type ModelObject = {
-  id: string
+/** Mirrors forma3d_shared.schemas.scene_object (the committed scene inventory). */
+export type SceneObject = {
+  object_id: string
   name: string
-  kind: PrimitiveKind
-  position: Vec3
+  type: string
+  component_type: string | null
+  parent_id: string | null
+  collection_id: string | null
+  location: Vec3 // world space
+  rotation: Vec3 // local XYZ Euler, degrees
   scale: Vec3
-  color: string
+  dimensions: Vec3
   visible: boolean
+  material_ids: string[]
+  modifiers: { name: string; type: string; params: Record<string, unknown> }[]
+  mesh: { vertices: number; edges: number; faces: number; triangles: number }
+  created_version: number | null
+  last_modified_version: number | null
 }
+
+export type SceneMaterial = {
+  material_id: string
+  name: string
+  base_color: string
+  metallic: number
+  roughness: number
+  alpha: number
+}
+
+export type SceneCollection = { collection_id: string; name: string; parent_id: string | null }
+
+export type SceneInventory = {
+  objects: SceneObject[]
+  materials: SceneMaterial[]
+  collections: SceneCollection[]
+}
+
+export type AssetKind = 'glb' | 'thumbnail' | 'blend' | 'inventory' | 'operations'
+export type Asset = { kind: AssetKind; size: number; sha256: string; url: string }
+
+export type Version = {
+  id: string
+  project_id: string
+  parent_version_id: string | null
+  version_number: number
+  summary: string
+  status: string
+  operation_batch_id: string | null
+  message_id: string | null
+  is_current: boolean
+  object_count: number
+  assets: Asset[]
+  created_at: string
+}
+
+export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export type Job = {
+  id: string
+  project_id: string
+  job_type: string
+  status: JobStatus
+  progress: { stage?: string; message?: string; [k: string]: unknown }
+  error_message: string | null
+  error_code: string | null
+  failed_operation_id: string | null
+  operation_batch_id: string | null
+  version_id: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+export type JobEvent = {
+  type: string
+  job_id: string
+  stage: string
+  message: string
+  data: Record<string, unknown>
+  timestamp?: string
+}
+
+export type SceneState = {
+  project_id: string
+  version: Version | null
+  inventory: SceneInventory
+  active_job: Job | null
+}
+
+export type SubmitResponse = { job_id: string; operation_batch_id: string; status: JobStatus }
+
+export type PrimitiveKind = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'plane' | 'torus'
+
+export type ObjectPatch = Partial<{
+  name: string
+  location: Vec3
+  rotation: Vec3
+  dimensions: Vec3
+  visible: boolean
+  material_id: string
+}>
+
+export type MaterialPatch = Partial<Pick<SceneMaterial, 'name' | 'base_color' | 'metallic' | 'roughness' | 'alpha'>>
 
 export type ChatMessage = { role: 'assistant' | 'user'; text: string; time: string }

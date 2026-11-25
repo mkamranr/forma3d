@@ -3,10 +3,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, Uuid
+from sqlalchemy import ForeignKey, Index, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database.base import Base, Timestamps, UUIDPk
+from app.database.base import Base, Timestamps, UTCDateTime, UUIDPk
 
 PROJECT_STATUSES = ("active", "archived", "deleted")
 
@@ -31,4 +31,4 @@ class Project(UUIDPk, Timestamps, Base):
         ),
     )
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False, index=True)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime())

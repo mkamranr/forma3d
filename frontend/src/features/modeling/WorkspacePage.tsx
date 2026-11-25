@@ -7,20 +7,21 @@ import { Toast } from '../../components/layout/Toast'
 import { TopBar } from '../../components/layout/TopBar'
 import { ViewportPanel } from '../../components/viewport/ViewportPanel'
 import { ApiError } from '../../services/api'
+import { downloadAsset } from '../../services/scene'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { useProject } from '../projects/hooks'
+import { glbUrl, useJobTracker, useScene } from './hooks'
+import { WorkspaceProvider } from './WorkspaceContext'
 
-export function WorkspacePage() {
-  const { projectId = '' } = useParams()
+function Workspace({ projectId }: { projectId: string }) {
   const project = useProject(projectId)
+  const scene = useScene(projectId)
   const showChat = useWorkspaceStore((s) => s.showChat)
   const showInspector = useWorkspaceStore((s) => s.showInspector)
-  const version = useWorkspaceStore((s) => s.version)
+  const activeJob = useWorkspaceStore((s) => s.activeJob)
   const toast = useWorkspaceStore((s) => s.toast)
-  const { notify, saveSnapshot, reset } = useWorkspaceStore.getState()
-
-  // Each project opens with a fresh workspace.
-  useEffect(() => reset(), [projectId, reset])
+  const { notify, setVersionsOpen } = useWorkspaceStore.getState()
+  useJobTracker(projectId)
 
   if (project.error) {
     const notFound = project.error instanceof ApiError && project.error.status === 404
@@ -35,17 +36,38 @@ export function WorkspacePage() {
     )
   }
 
-  const projectName = project.data?.name ?? 'Loading…'
+  const version = scene.data?.version ?? null
+  const exportGlb = () => {
+    const url = glbUrl(version)
+    if (!url || !version) return notify('Nothing to export yet — create a model first')
+    const base = (project.data?.name ?? 'model').replace(/[^\w.-]+/g, '_').slice(0, 60) || 'model'
+    downloadAsset(url, `${base}-v${version.version_number}.glb`).catch(() => notify('Export failed'))
+  }
+
   return (
     <div className="app-shell">
-      <TopBar version={version} onExport={() => notify('Export is a UI demo — connect the Blender worker to generate GLB')} />
-      <ProjectBar project={project.data} onSaveVersion={saveSnapshot} />
+      <TopBar version={version?.version_number ?? null} building={activeJob?.message ?? null} onExport={exportGlb} />
+      <ProjectBar project={project.data} onOpenVersions={() => setVersionsOpen(true)} />
       <main className="workspace">
-        {showChat && <ChatPanel projectName={projectName} />}
+        {showChat && <ChatPanel projectName={project.data?.name ?? 'Loading…'} />}
         <ViewportPanel />
         {showInspector && <InspectorPanel />}
       </main>
       <Toast message={toast} />
     </div>
+  )
+}
+
+export function WorkspacePage() {
+  const { projectId = '' } = useParams()
+  const reset = useWorkspaceStore((s) => s.reset)
+  // Each project opens with a fresh workspace.
+  useEffect(() => {
+    reset()
+  }, [projectId, reset])
+  return (
+    <WorkspaceProvider projectId={projectId}>
+      <Workspace key={projectId} projectId={projectId} />
+    </WorkspaceProvider>
   )
 }

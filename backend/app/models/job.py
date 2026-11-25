@@ -4,10 +4,10 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, Uuid
+from sqlalchemy import ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database.base import Base, CreatedAt, JSONType, UUIDPk
+from app.database.base import Base, CreatedAt, JSONType, UTCDateTime, UUIDPk
 
 JOB_STATUSES = ("queued", "running", "succeeded", "failed", "cancelled")
 
@@ -29,5 +29,5 @@ class Job(UUIDPk, CreatedAt, Base):
     diagnostics: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
     worker_id: Mapped[str | None] = mapped_column(String(64))
     error_message: Mapped[str | None] = mapped_column(Text)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
