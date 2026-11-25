@@ -55,6 +55,19 @@
   <br><sub><b>Dashboard.</b> Your projects with live thumbnails, search, sort and archive.</sub>
 </p>
 
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="screenshots/4.JPG" alt="Version history with an inline v3 to v4 comparison">
+      <br><sub><b>Version history.</b> Every change is an immutable version: compare any two, jump back to the chat that made it, restore or branch.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="screenshots/3.JPG" alt="Render dialog with quality, size, camera and transparent background options">
+      <br><sub><b>Rendering.</b> Path-traced Cycles renders straight from the workspace: quality, size, camera and transparent background.</sub>
+    </td>
+  </tr>
+</table>
+
 ## Features
 
 ### Conversational modeling
