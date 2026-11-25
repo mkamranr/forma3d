@@ -60,10 +60,11 @@ function QualityChip({ quality }: { quality: NonNullable<ConversationMessage['me
   )
 }
 
-function MessageView({ m, projectName }: { m: ConversationMessage; projectName: string }) {
+function MessageView({ m, projectName, highlighted }: { m: ConversationMessage; projectName: string; highlighted: boolean }) {
+  const setVersionsOpen = useWorkspaceStore((s) => s.setVersionsOpen)
   const failed = m.role === 'assistant' && (m.status === 'failed' || m.status === 'cancelled')
   return (
-    <div className={`message ${m.role}`}>
+    <div id={`msg-${m.id}`} className={`message ${m.role}${highlighted ? ' highlighted' : ''}`}>
       {m.role === 'assistant' && <div className="assistant-avatar"><Sparkles size={13} /></div>}
       <div className="message-body">
         <div className="message-meta">
@@ -73,7 +74,13 @@ function MessageView({ m, projectName }: { m: ConversationMessage; projectName: 
         {m.metadata.restored ? (
           <div className="chat-chip"><History size={12} /> Restored v{m.metadata.restored}</div>
         ) : m.metadata.version_number ? (
-          <div className="chat-chip"><GitCommitHorizontal size={12} /> Saved as v{m.metadata.version_number}</div>
+          <button
+            className="chat-chip"
+            title="Open this version in the history"
+            onClick={() => setVersionsOpen(true, m.metadata.version_id ?? null)}
+          >
+            <GitCommitHorizontal size={12} /> Saved as v{m.metadata.version_number}
+          </button>
         ) : null}
         {m.metadata.quality && <QualityChip quality={m.metadata.quality} />}
         {m.metadata.action === 'export' && <ExportButton message={m} projectName={projectName} />}
@@ -83,7 +90,8 @@ function MessageView({ m, projectName }: { m: ConversationMessage; projectName: 
 }
 
 export function ChatPanel({ projectName }: { projectName: string }) {
-  const { projectId, inventory, selected } = useWorkspaceScene()
+  const { projectId, inventory, selected, selection } = useWorkspaceScene()
+  const highlightMessageId = useWorkspaceStore((s) => s.highlightMessageId)
   const conversation = useConversation(projectId)
   const prompt = useWorkspaceStore((s) => s.prompt)
   const activeJob = useWorkspaceStore((s) => s.activeJob)
@@ -97,9 +105,17 @@ export function ChatPanel({ projectName }: { projectName: string }) {
     endRef.current?.scrollIntoView?.({ block: 'end' })
   }, [messages.length, activeJob?.message])
 
+  // "Show in chat" from the version history: scroll to the message, highlight it briefly.
+  useEffect(() => {
+    if (!highlightMessageId) return
+    document.getElementById(`msg-${highlightMessageId}`)?.scrollIntoView?.({ block: 'center' })
+    const t = setTimeout(() => useWorkspaceStore.getState().showMessage(null), 2500)
+    return () => clearTimeout(t)
+  }, [highlightMessageId, messages.length])
+
   const send = async (text = prompt.trim()) => {
     if (!text || activeJob) return
-    if (await sendMessage(text, selected?.object_id ?? null)) setPrompt('')
+    if (await sendMessage(text, selection.map((o) => o.object_id))) setPrompt('')
   }
 
   return (
@@ -120,11 +136,18 @@ export function ChatPanel({ projectName }: { projectName: string }) {
           <span>{projectName}</span>
           <span className="context-count">{inventory.objects.length} objects</span>
         </div>
-        {selected && (
+        {selected && selection.length <= 1 && (
           <div className="context-row selection" title="The assistant knows which object is selected">
             <MousePointer2 size={13} />
             <span>{selected.name}</span>
             <span className="context-count">selected</span>
+          </div>
+        )}
+        {selection.length > 1 && (
+          <div className="context-row selection" title={selection.map((o) => o.name).join(', ')}>
+            <MousePointer2 size={13} />
+            <span>{selection.map((o) => o.name).join(', ')}</span>
+            <span className="context-count">{selection.length} selected</span>
           </div>
         )}
       </div>
@@ -141,7 +164,7 @@ export function ChatPanel({ projectName }: { projectName: string }) {
           </div>
         )}
         {conversation.isError && <div className="chat-chip muted">Could not load the conversation.</div>}
-        {messages.map((m) => <MessageView key={m.id} m={m} projectName={projectName} />)}
+        {messages.map((m) => <MessageView key={m.id} m={m} projectName={projectName} highlighted={m.id === highlightMessageId} />)}
         <div className="agent-status" role="status">
           {activeJob ? (
             <>

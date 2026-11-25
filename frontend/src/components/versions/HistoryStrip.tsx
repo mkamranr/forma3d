@@ -1,10 +1,10 @@
-import { ChevronRight, Clock3, History, ImageOff, RotateCcw } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { errorMessage, useRestoreVersion, useVersions } from '../../features/modeling/hooks'
+import { ArrowRight, ChevronRight, Clock3, GitBranch, GitCompareArrows, History, ImageOff, MessageSquare, RotateCcw, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { errorMessage, useCompare, useRestoreVersion, useVersions } from '../../features/modeling/hooks'
 import { useProjectId } from '../../features/modeling/WorkspaceContext'
 import { fetchAsset } from '../../services/scene'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
-import type { Version } from '../../types/scene'
+import type { FieldChange, Version, VersionCompare } from '../../types/scene'
 import { relativeTime } from '../../utils/format'
 import { Dialog } from '../ui/Dialog'
 
@@ -40,13 +40,97 @@ function Thumb({ version }: { version: Version }) {
   )
 }
 
+const FIELD_LABELS: Record<string, string> = {
+  name: 'name',
+  location: 'position',
+  rotation: 'rotation',
+  dimensions: 'size',
+  material_ids: 'material',
+  parent_id: 'parent',
+  visible: 'visibility',
+  modifiers: 'modifiers',
+  component_type: 'component',
+  base_color: 'colour',
+  metallic: 'metallic',
+  roughness: 'roughness',
+  alpha: 'opacity',
+}
+
+function fmt(v: unknown): string {
+  if (Array.isArray(v)) return v.every((x) => typeof x === 'number') ? v.map((x) => +(x as number).toFixed(3)).join(' × ') : v.join(', ') || '—'
+  if (v === null || v === undefined || v === '') return '—'
+  if (typeof v === 'number') return String(+v.toFixed(3))
+  return String(v)
+}
+
+function Change({ field, change }: { field: string; change: FieldChange }) {
+  return (
+    <li>
+      <span className="diff-field">{FIELD_LABELS[field] ?? field}</span> {fmt(change.before)} <ArrowRight size={10} /> {fmt(change.after)}
+    </li>
+  )
+}
+
+export function CompareView({ diff }: { diff: VersionCompare }) {
+  const o = diff.objects
+  const m = diff.materials
+  const nothing = !o.added.length && !o.removed.length && !o.changed.length && !m.added.length && !m.removed.length && !m.changed.length
+  return (
+    <div className="version-compare" aria-label="Version comparison">
+      <div className="compare-title">
+        v{diff.base.version_number} <ArrowRight size={12} /> v{diff.target.version_number}
+        <span>{o.unchanged} object{o.unchanged === 1 ? '' : 's'} unchanged</span>
+      </div>
+      {nothing && <div className="tree-empty">No differences</div>}
+      {o.added.map((x) => <div key={`a-${x.object_id}`} className="diff-row added">+ {x.name} <code>{x.object_id}</code></div>)}
+      {o.removed.map((x) => <div key={`r-${x.object_id}`} className="diff-row removed">− {x.name} <code>{x.object_id}</code></div>)}
+      {o.changed.map((x) => (
+        <div key={`c-${x.object_id}`} className="diff-row changed">
+          ~ {x.name} <code>{x.object_id}</code>
+          <ul>{Object.entries(x.fields).map(([f, c]) => <Change key={f} field={f} change={c} />)}</ul>
+        </div>
+      ))}
+      {m.added.map((x) => <div key={`ma-${x.material_id}`} className="diff-row added">+ material {x.name}</div>)}
+      {m.removed.map((x) => <div key={`mr-${x.material_id}`} className="diff-row removed">− material {x.name}</div>)}
+      {m.changed.map((x) => (
+        <div key={`mc-${x.material_id}`} className="diff-row changed">
+          ~ material {x.name}
+          <ul>{Object.entries(x.fields).map(([f, c]) => <Change key={f} field={f} change={c} />)}</ul>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function VersionsDialog() {
   const projectId = useProjectId()
   const open = useWorkspaceStore((s) => s.versionsOpen)
+  const focusVersionId = useWorkspaceStore((s) => s.focusVersionId)
   const busy = useWorkspaceStore((s) => !!s.activeJob)
-  const { setVersionsOpen, notify } = useWorkspaceStore.getState()
+  const { setVersionsOpen, notify, showMessage, setShowChat } = useWorkspaceStore.getState()
   const versions = useVersions(projectId)
   const restore = useRestoreVersion(projectId)
+  const [picked, setPicked] = useState<string[]>([])
+  const byId = useMemo(() => new Map((versions.data ?? []).map((v) => [v.id, v])), [versions.data])
+
+  // Compare older -> newer, whatever order they were picked in.
+  const [baseId, targetId] = useMemo(() => {
+    if (picked.length !== 2) return [null, null]
+    const [a, b] = picked.map((id) => byId.get(id))
+    if (!a || !b) return [null, null]
+    return a.version_number < b.version_number ? [a.id, b.id] : [b.id, a.id]
+  }, [picked, byId])
+  const compare = useCompare(projectId, baseId, targetId)
+
+  useEffect(() => {
+    if (!open) setPicked([])
+  }, [open])
+  useEffect(() => {
+    if (open && focusVersionId) document.getElementById(`version-${focusVersionId}`)?.scrollIntoView?.({ block: 'center' })
+  }, [open, focusVersionId, versions.data])
+
+  const togglePick = (id: string) =>
+    setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p.slice(-1), id]))
 
   const doRestore = (v: Version) =>
     restore.mutate(v.id, {
@@ -54,26 +138,76 @@ function VersionsDialog() {
       onError: (err) => notify(errorMessage(err)),
     })
 
+  const goToMessage = (v: Version) => {
+    if (!v.message_id) return
+    setVersionsOpen(false)
+    setShowChat(true)
+    showMessage(v.message_id)
+  }
+
   return (
-    <Dialog open={open} title="Version history" description="Every change is an immutable version. Restoring never deletes anything." onClose={() => setVersionsOpen(false)}>
+    <Dialog
+      open={open}
+      title="Version history"
+      description="Every change is an immutable version. Restoring never deletes anything; a change made after restoring starts a new branch."
+      onClose={() => setVersionsOpen(false)}
+    >
+      <div className="versions-hint">
+        <GitCompareArrows size={12} /> Tick two versions to compare them.
+        {picked.length > 0 && <button className="link-btn" onClick={() => setPicked([])}><X size={11} /> Clear</button>}
+      </div>
+      {compare.data && <CompareView diff={compare.data} />}
+      {compare.isError && <div className="chat-chip muted">Could not compare these versions.</div>}
       <div className="versions-list" role="list">
         {versions.isLoading && <div className="tree-empty">Loading…</div>}
         {versions.data?.length === 0 && <div className="tree-empty">No versions yet</div>}
-        {versions.data?.map((v) => (
-          <div role="listitem" key={v.id} className={`version-row ${v.is_current ? 'current' : ''}`}>
-            <Thumb version={v} />
-            <div className="version-meta">
-              <strong>v{v.version_number} {v.is_current && <span className="property-pill">CURRENT</span>}</strong>
-              <span>{v.summary || 'Untitled change'}</span>
-              <small>{relativeTime(v.created_at)} · {v.object_count} objects</small>
+        {versions.data?.map((v, i) => {
+          const parent = v.parent_version_id ? byId.get(v.parent_version_id) : undefined
+          const previous = versions.data?.[i + 1]
+          const branched = !!parent && !!previous && parent.id !== previous.id
+          return (
+            <div
+              role="listitem"
+              id={`version-${v.id}`}
+              key={v.id}
+              className={`version-row ${v.is_current ? 'current' : ''} ${focusVersionId === v.id ? 'focused' : ''}`}
+            >
+              <input
+                type="checkbox"
+                className="version-pick"
+                aria-label={`Compare version ${v.version_number}`}
+                checked={picked.includes(v.id)}
+                onChange={() => togglePick(v.id)}
+              />
+              <Thumb version={v} />
+              <div className="version-meta">
+                <strong>
+                  v{v.version_number} {v.is_current && <span className="property-pill">CURRENT</span>}
+                  {branched && (
+                    <span className="branch-pill" title="Made after restoring an earlier version">
+                      <GitBranch size={10} /> from v{parent.version_number}
+                    </span>
+                  )}
+                </strong>
+                <span>{v.summary || 'Untitled change'}</span>
+                {v.prompt && <em className="version-prompt">“{v.prompt}”</em>}
+                <small>{relativeTime(v.created_at)} · {v.object_count} objects · {v.source === 'chat' ? 'assistant' : 'edit'}</small>
+              </div>
+              <div className="version-actions">
+                {v.message_id && (
+                  <button className="soft-btn small" onClick={() => goToMessage(v)} title="Show the conversation that made this change">
+                    <MessageSquare size={12} /> Chat
+                  </button>
+                )}
+                {!v.is_current && (
+                  <button className="soft-btn small" disabled={busy || restore.isPending} onClick={() => doRestore(v)} title={`Restore version ${v.version_number}`}>
+                    <RotateCcw size={12} /> Restore
+                  </button>
+                )}
+              </div>
             </div>
-            {!v.is_current && (
-              <button className="soft-btn small" disabled={busy || restore.isPending} onClick={() => doRestore(v)} title={`Restore version ${v.version_number}`}>
-                <RotateCcw size={12} /> Restore
-              </button>
-            )}
-          </div>
-        ))}
+          )
+        })}
       </div>
     </Dialog>
   )
@@ -90,9 +224,14 @@ export function HistoryStrip() {
       <div className="history-items">
         {recent.length === 0 && <span className="history-item muted">No versions yet</span>}
         {recent.map((v) => (
-          <span className={`history-item ${v.is_current ? 'current' : ''}`} key={v.id} title={relativeTime(v.created_at)}>
+          <button
+            className={`history-item ${v.is_current ? 'current' : ''}`}
+            key={v.id}
+            title={v.prompt ? `“${v.prompt}” · ${relativeTime(v.created_at)}` : relativeTime(v.created_at)}
+            onClick={() => setVersionsOpen(true, v.id)}
+          >
             <span className="history-bullet"></span>v{v.version_number} · {v.summary || 'Change'}
-          </span>
+          </button>
         ))}
       </div>
       <button className="history-all" onClick={() => setVersionsOpen(true)}>

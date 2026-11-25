@@ -4,7 +4,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { ApiError } from '../../services/api'
 import { getConversation, postMessage } from '../../services/conversation'
 import { followJobEvents, TERMINAL_EVENT_TYPES } from '../../services/jobEvents'
-import { fetchAsset, getJob, getScene, listVersions, restoreVersion } from '../../services/scene'
+import { compareVersions, fetchAsset, getJob, getScene, listVersions, restoreVersion, stepHistory } from '../../services/scene'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import type { Conversation, SubmitResponse, Version } from '../../types/scene'
 import { projectKeys } from '../projects/hooks'
@@ -41,14 +41,14 @@ export function useConversation(projectId: string) {
 export function useSendMessage(projectId: string) {
   const qc = useQueryClient()
   return useCallback(
-    async (text: string, selectedObjectId: string | null): Promise<boolean> => {
+    async (text: string, selectedObjectIds: string[]): Promise<boolean> => {
       const { activeJob, startJob, notify } = useWorkspaceStore.getState()
       if (activeJob) {
         notify('Still working on the previous request — try again in a moment.')
         return false
       }
       try {
-        const res = await postMessage(projectId, text, selectedObjectId)
+        const res = await postMessage(projectId, text, selectedObjectIds)
         qc.setQueryData(sceneKeys.conversation(projectId), (old: Conversation | undefined) =>
           old ? { ...old, messages: [...old.messages, res.message] } : old,
         )
@@ -207,5 +207,38 @@ export function useRestoreVersion(projectId: string) {
         qc.invalidateQueries({ queryKey: projectKeys.all }),
       ])
     },
+  })
+}
+
+/** Undo/redo targets computed from the version tree (same rule as the backend). */
+export function historyTargets(versions: Version[] | undefined) {
+  const list = versions ?? []
+  const head = list.find((v) => v.is_current)
+  const undo = head?.parent_version_id ? list.find((v) => v.id === head.parent_version_id) ?? null : null
+  const children = head ? list.filter((v) => v.parent_version_id === head.id) : []
+  const redo = children.sort((a, b) => b.created_at.localeCompare(a.created_at) || b.version_number - a.version_number)[0] ?? null
+  return { head: head ?? null, undo, redo }
+}
+
+export function useHistoryStep(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (direction: 'undo' | 'redo') => stepHistory(projectId, direction),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: sceneKeys.scene(projectId) }),
+        qc.invalidateQueries({ queryKey: sceneKeys.versions(projectId) }),
+        qc.invalidateQueries({ queryKey: projectKeys.all }),
+      ])
+    },
+  })
+}
+
+export function useCompare(projectId: string, baseId: string | null, targetId: string | null) {
+  return useQuery({
+    queryKey: ['compare', projectId, baseId, targetId],
+    queryFn: () => compareVersions(projectId, baseId as string, targetId as string),
+    enabled: !!baseId && !!targetId && baseId !== targetId,
+    staleTime: Infinity, // versions are immutable
   })
 }

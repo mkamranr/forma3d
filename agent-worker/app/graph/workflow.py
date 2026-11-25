@@ -1,7 +1,7 @@
 """LangGraph modeling workflow (spec §7.2).
 
     load_context -> inspect_scene -> conversation --(question/export)--> answer ------------------> respond
-                                         |   \\--(undo/restore)--> version_manager ---------------> respond
+                                         |   \\--(undo/redo/restore)--> version_manager ---------------> respond
                                          |    \\--(clarify)--> ask -> wait_answer [interrupt] -> load_context
                                          v
                                       planning --(needs clarification)--> ask
@@ -208,7 +208,11 @@ class Workflow:
         d = state["decision"]
         self.emit(job, "agent.progress", "versions", "Restoring a version")
         body = (
-            RestoreRequest(undo=True) if d["intent"] == "undo" else RestoreRequest(version_number=d["version_number"])
+            RestoreRequest(undo=True)
+            if d["intent"] == "undo"
+            else RestoreRequest(redo=True)
+            if d["intent"] == "redo"
+            else RestoreRequest(version_number=d["version_number"])
         )
         try:
             res = self.d.backend.restore(job, body)
@@ -548,6 +552,7 @@ class Workflow:
             "question": "answer",
             "export": "answer",
             "undo": "version_manager",
+            "redo": "version_manager",
             "restore": "version_manager",
             "clarify": "ask",
         }.get(intent, "planning")

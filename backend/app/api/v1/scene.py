@@ -14,7 +14,7 @@ from app.api.v1.versions import _version_out
 from app.core.config import Settings
 from app.models import User
 from app.repositories.modeling import ModelingRepository
-from app.schemas.modeling import SubmitResponse
+from app.schemas.modeling import HistoryStepOut, SubmitResponse
 from app.schemas.project import ProjectOut
 from app.schemas.scene import MaterialPatch, NewObject, ObjectMaterial, ObjectPatch, SceneOut
 from app.services.job_service import job_out
@@ -170,3 +170,33 @@ async def restore_version(
 ) -> ProjectOut:
     project = await _svc(request, session, settings).restore_version(user.id, project_id, version_id)
     return await ProjectService(session).get(user.id, project.id)
+
+
+async def _step(direction: str, project_id, request, user, session, settings) -> HistoryStepOut:  # noqa: ANN001
+    target = await _svc(request, session, settings).step_history(user.id, project_id, direction)
+    project = await ProjectService(session).get(user.id, project_id)
+    return HistoryStepOut(version_id=target.id, version_number=target.version_number, project=project)
+
+
+@router.post("/modeling/undo", response_model=HistoryStepOut)
+async def undo(
+    project_id: uuid.UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings_dep),
+) -> HistoryStepOut:
+    """Move the head to its parent version (409 `nothing_to_undo`)."""
+    return await _step("undo", project_id, request, user, session, settings)
+
+
+@router.post("/modeling/redo", response_model=HistoryStepOut)
+async def redo(
+    project_id: uuid.UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings_dep),
+) -> HistoryStepOut:
+    """Move the head to its most recent child version (409 `nothing_to_redo`)."""
+    return await _step("redo", project_id, request, user, session, settings)

@@ -39,9 +39,92 @@ def _role(messages: list[ChatMessage]) -> str:
     return hit.group(1) if hit else "unknown"
 
 
-def _selected(messages: list[ChatMessage]) -> str | None:
-    hit = re.search(r"Selected object: (?:'[^']*' \(id )?([a-z][a-z0-9_]*)", messages[-1].content)
-    return hit.group(1) if hit else None
+def _selected(messages: list[ChatMessage]) -> list[str]:
+    """Ids of the selected objects (primary last), from the "Selected object(s): ..." line."""
+    hit = re.search(r"Selected objects?: (.*)", messages[-1].content)
+    return re.findall(r"\(id ([a-z][a-z0-9_]*)\)", hit.group(1)) if hit else []
+
+
+COLORS = {
+    "red": "#B3261E",
+    "blue": "#1F4E99",
+    "dark blue": "#1B2A4A",
+    "green": "#2E7D32",
+    "black": "#111111",
+    "white": "#F2F2F2",
+    "grey": "#808080",
+    "gray": "#808080",
+    "yellow": "#E0B422",
+    "orange": "#D9711F",
+}
+
+
+def _color(text: str) -> tuple[str, str] | None:
+    for name in sorted(COLORS, key=len, reverse=True):
+        if re.search(rf"\b{name}\b", text):
+            return name, COLORS[name]
+    return None
+
+
+def chair_plan() -> dict[str, Any]:
+    seat_top = 0.475
+    parts: list[dict[str, Any]] = [
+        {
+            "id": "seat",
+            "action": "create",
+            "name": "Seat",
+            "component": "seat",
+            "shape": "box",
+            "size": [0.45, 0.45, 0.05],
+            "position": [0, 0, 0.45],
+            "material": "beech",
+            "bevel": 0.004,
+        },
+        {
+            "id": "backrest",
+            "action": "create",
+            "name": "Backrest",
+            "component": "backrest",
+            "shape": "box",
+            "size": [0.45, 0.04, 0.45],
+            "position": [0, 0.205, seat_top + 0.225],
+            "material": "beech",
+            "parent": "seat",
+        },
+    ]
+    legs = [
+        ("leg_fl", "Leg Front Left", -0.19, -0.19),
+        ("leg_fr", "Leg Front Right", 0.19, -0.19),
+        ("leg_bl", "Leg Back Left", -0.19, 0.19),
+        ("leg_br", "Leg Back Right", 0.19, 0.19),
+    ]
+    for lid, name, x, y in legs:
+        parts.append(
+            {
+                "id": lid,
+                "action": "create",
+                "name": name,
+                "component": "leg",
+                "shape": "box",
+                "size": [0.04, 0.04, 0.425],
+                "position": [x, y, 0.2125],
+                "material": "steel",
+                "parent": "seat",
+            }
+        )
+    return {
+        "summary": "Create a chair",
+        "reply": "I built a simple chair: a beech seat and backrest on four steel legs.",
+        "needs_clarification": False,
+        "question": "",
+        "materials": [
+            {"id": "beech", "name": "Beech", "color": "#C8A27A", "roughness": 0.6},
+            {"id": "steel", "name": "Steel", "color": "#9AA1A9", "metallic": 0.9, "roughness": 0.3},
+        ],
+        "parts": parts,
+        "relations": [{"subject": "backrest", "relation": "on_top_of", "object": "seat"}]
+        + [{"subject": lid, "relation": "under", "object": "seat"} for lid, *_ in legs],
+    }
 
 
 LEGS = [
@@ -117,7 +200,9 @@ class FakeProvider:
 
         if re.search(r"\b(export|download)\b", low):
             return {**base, "intent": "export", "reply": "Your GLB is ready — use the download button."}
-        if re.search(r"\bundo\b", low):
+        if re.search(r"\bredo\b", low):
+            return {**base, "intent": "redo", "reply": "I re-applied the change."}
+        if re.search(r"\bundo\b|\bprevious version\b|\bgo back\b(?!.*version \d)", low):
             return {**base, "intent": "undo", "reply": "I went back one version."}
         if m := re.search(r"\b(?:restore|back to|revert to)\b.*?\bversion (\d+)", low):
             n = int(m.group(1))
@@ -125,10 +210,17 @@ class FakeProvider:
         if re.match(r"\s*(how many|what|which|where|list)\b", low) or (low.endswith("?") and "make" not in low):
             names = ", ".join(o["name"] for o in objects) or "nothing yet"
             return {**base, "intent": "question", "reply": f"The scene has {len(objects)} objects: {names}."}
+        selected = [s for s in _selected(messages) if s in ids]
+        if selected and re.search(r"\b(it|its|this|these|them|selected|selection)\b", low):
+            return {
+                **base,
+                "intent": "modify",
+                "targets": selected,
+                "task": f"{text} (applies to {', '.join(selected)} only; nothing else changes)",
+            }
         if "drawer" in low and re.search(r"\b(smaller|bigger|larger|wider|narrower)\b", low):
-            sel = _selected(messages)
-            if sel in ids:
-                targets = [sel]
+            if selected:
+                targets = selected[-1:]
             elif re.search(r"\bboth\b|\bdrawers\b", low):
                 targets = [d["id"] for d in drawers]
             elif "left" in low and drawers:
@@ -177,6 +269,64 @@ class FakeProvider:
 
         if not objects and re.search(r"\b(desk|table)\b", task):
             return desk_plan()
+        if not objects and "chair" in task:
+            return chair_plan()
+        targets = [i for i in objects if re.search(rf"\b{i}\b", task)]
+        if "taller" in task and targets:
+            parts = []
+            for i in targets:
+                o = objects[i]
+                h = round(o["size"][2] * 1.25, 4)
+                bottom = o["bounds"]["min"][2]
+                parts.append(
+                    {
+                        "id": i,
+                        "action": "modify",
+                        "size": [*o["size"][:2], h],
+                        "position": [*o["position"][:2], round(bottom + h / 2, 4)],
+                    }
+                )
+            return {
+                **empty,
+                "summary": f"Make {', '.join(targets)} taller",
+                "reply": f"I made {', '.join(targets)} 25% taller; its base stays where it was.",
+                "parts": parts,
+            }
+        if (col := _color(task)) and targets and re.search(r"\b(colou?r|paint|make it|turn)\b", task):
+            name, hexcode = col
+            mid = name.replace(" ", "_") + "_paint"
+            return {
+                **empty,
+                "summary": f"Paint {', '.join(targets)} {name}",
+                "reply": f"I painted {', '.join(targets)} {name}; parts sharing its old material are unchanged.",
+                "materials": []
+                if mid in mats
+                else [{"id": mid, "name": f"{name.title()} Paint", "color": hexcode, "roughness": 0.5}],
+                "parts": [{"id": i, "action": "modify", "material": mid} for i in targets],
+            }
+        if "desk" in task and re.search(r"\b(wider|longer)\b", task) and "desk_top" in objects:
+            cm = re.search(r"(\d+)\s*cm", task)
+            grow = int(cm.group(1)) / 100 if cm else 0.2
+            top = objects["desk_top"]
+            parts = [
+                {"id": "desk_top", "action": "modify", "size": [round(top["size"][0] + grow, 4), *top["size"][1:]]}
+            ]
+            for i, o in objects.items():
+                if o.get("component") == "leg":
+                    x = o["position"][0]
+                    parts.append(
+                        {
+                            "id": i,
+                            "action": "modify",
+                            "position": [round(x + (grow / 2 if x > 0 else -grow / 2), 4), *o["position"][1:]],
+                        }
+                    )
+            return {
+                **empty,
+                "summary": f"Make the desk {round(grow * 100)} cm wider",
+                "reply": f"The desk is now {round(grow * 100)} cm wider; the legs moved out to the new corners.",
+                "parts": parts,
+            }
         if "leg" in task and "black" in task:
             legs = [i for i, o in objects.items() if o.get("component") == "leg"]
             return {

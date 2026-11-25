@@ -15,7 +15,7 @@ from .inspection import scene_report
 from .llm import Result, structured_call
 
 PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
-TurnIntent = Literal["create", "modify", "question", "export", "undo", "restore", "clarify"]
+TurnIntent = Literal["create", "modify", "question", "export", "undo", "redo", "restore", "clarify"]
 
 
 class Decision(BaseModel):
@@ -48,6 +48,20 @@ def system_prompt() -> str:
     return (PROMPTS / "conversation.md").read_text(encoding="utf-8")
 
 
+def selection_lines(ctx: AgentContext) -> list[str]:
+    """What the user has selected in the viewport/hierarchy (primary object last)."""
+    objects = ctx.inventory.object_map()
+    ids = [
+        i
+        for i in (ctx.selected_object_ids or ([ctx.selected_object_id] if ctx.selected_object_id else []))
+        if i in objects
+    ]
+    if not ids:
+        return []
+    names = ", ".join(f"'{objects[i].name}' (id {i})" for i in ids)
+    return [f"Selected object: {names}." if len(ids) == 1 else f"Selected objects: {names}."]
+
+
 def build_messages(ctx: AgentContext, clarification: dict[str, str] | None) -> list[ChatMessage]:
     msgs = [ChatMessage("system", system_prompt())]
     for turn in ctx.history[-8:]:
@@ -61,10 +75,7 @@ def build_messages(ctx: AgentContext, clarification: dict[str, str] | None) -> l
         ),
         f"<scene>{json.dumps(scene_report(ctx.inventory), separators=(',', ':'))}</scene>",
     ]
-    if ctx.selected_object_id:
-        obj = ctx.inventory.object_map().get(ctx.selected_object_id)
-        if obj:
-            parts.append(f"Selected object: '{obj.name}' (id {obj.object_id}).")
+    parts.extend(selection_lines(ctx))
     if clarification:
         parts.append(
             "<clarification>You asked: "

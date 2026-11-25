@@ -158,3 +158,33 @@ Living record of decisions beyond `project-specification.md`. Update as phases l
   graph runs in-process: §23 scenario, Scenario C, QA failure → revision, bounded failure,
   invalid-plan rejection, undo/restore/questions, cancel, crash at three points + resume on a new
   worker with a SQLite checkpoint, stream reclaim.
+
+## Phase 6 — Conversational editing and versioning
+
+- **Undo / redo** (`app/services/history_service.py`): pointer moves over the immutable version tree.
+  Undo = head's parent; redo = head's most recent child. A change made after an undo/restore branches
+  (its `parent_version_id` is the restored version). Exposed as `POST /modeling/undo|redo` (header
+  buttons, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y outside text fields) and as the agent's `undo` / `redo` /
+  `restore` intents (`RestoreRequest{undo|redo|version_number}`). Same guards as restore: blocked while
+  a job builds or an agent turn runs.
+- **Compare** (`forma3d_shared/inventory_diff.py`): objects and materials matched by stable id; per-field
+  before/after with a float tolerance (float32 round trips), so a rename is a change, not delete + add.
+  `POST /versions/compare`; the history dialog compares any two ticked versions (older → newer).
+- **Conversation ↔ version**: versions keep `message_id`; the list returns `source` (`chat` / `edit`) and
+  the user's `prompt`. The dialog shows the prompt and a "Chat" link that scrolls to and highlights the
+  message; "Saved as vN" chips in the chat open the history focused on that version. Branches show
+  "from vN" when a version's parent is not the version before it.
+- **Selection context**: Shift/Ctrl/Cmd-click selects several objects in the hierarchy or viewport
+  (primary = last, which drives gizmos and the properties panel). Messages carry
+  `selected_object_ids`; the Conversation and Planning agents see "Selected objects: 'Name' (id …)".
+- **Minimal changes**: the Planning Agent only names parts it changes; the Modeling compiler emits ops
+  only for those; QA fails any untouched object that differs (transform, dimensions, materials, parent,
+  visibility). Recolouring one part of a shared material assigns a new material to that part only.
+- **Scenario E (concurrency)**: job admission is atomic per project — chat posts and UI edits take a short
+  Redis admission mutex around "nothing running? → create job", so two simultaneous requests cannot
+  both be accepted (one gets 409 `project_busy`). The project lock serialises builds, and the commit
+  still checks `expected_head_version_id`, so even a lost lock cannot overwrite a newer version.
+- **Tests**: backend `test_history.py` (undo/redo/branching, compare, prompts, selection, concurrent
+  messages/edits, stale-head commit); agent `test_editing.py` (Scenarios A and B, redo, multi-selection);
+  frontend `History.test.tsx`; end to end with real Blender (FakeProvider and vLLM) including a reload
+  after restarting the stack.

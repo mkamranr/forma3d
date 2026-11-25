@@ -71,14 +71,15 @@ type ModelProps = {
   resetKey: number
   objects: Map<string, SceneObject>
   selectedId: string | null
+  selectedIds: string[]
   shading: Shading
   tool: Tool
-  onSelect: (id: string | null) => void
+  onSelect: (id: string | null, additive?: boolean) => void
   onCommit: (objectId: string, patch: ObjectPatch) => void
   onDragEnd: () => void
 }
 
-function Model({ gltf, resetKey, objects, selectedId, shading, tool, onSelect, onCommit, onDragEnd }: ModelProps) {
+function Model({ gltf, resetKey, objects, selectedId, selectedIds, shading, tool, onSelect, onCommit, onDragEnd }: ModelProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const prepared = useMemo(() => prepare(gltf), [gltf, resetKey])
   const startScale = useRef(new THREE.Vector3(1, 1, 1))
@@ -90,7 +91,7 @@ function Model({ gltf, resetKey, objects, selectedId, shading, tool, onSelect, o
       const visible = obj ? obj.visible : true
       const material = shading === 'wireframe' ? info.wire : shading === 'solid' ? info.solid : info.original
       mesh.material = material
-      const selected = !!selectedId && info.owner === selectedId
+      const selected = !!info.owner && selectedIds.includes(info.owner)
       eachMaterial(material, (m) => {
         m.visible = visible
         const std = m as THREE.MeshStandardMaterial
@@ -102,7 +103,7 @@ function Model({ gltf, resetKey, objects, selectedId, shading, tool, onSelect, o
         }
       })
     }
-  }, [prepared, objects, selectedId, shading])
+  }, [prepared, objects, selectedIds, shading])
 
   const selectedNode = selectedId ? prepared.nodes.get(selectedId) ?? null : null
   const box = useMemo(() => new THREE.Box3Helper(new THREE.Box3(), new THREE.Color('#8b9cfb')), [])
@@ -117,7 +118,8 @@ function Model({ gltf, resetKey, objects, selectedId, shading, tool, onSelect, o
     for (const hit of e.intersections) {
       const id = ownerId(hit.object)
       if (id && objects.get(id)?.visible !== false) {
-        onSelect(id)
+        const n = e.nativeEvent
+        onSelect(id, n.shiftKey || n.ctrlKey || n.metaKey)
         return
       }
     }
@@ -252,13 +254,14 @@ export type SceneProps = {
   resetKey: number
   objects: Map<string, SceneObject>
   selectedId: string | null
+  selectedIds: string[]
   showGrid: boolean
   showAxes: boolean
   shading: Shading
   projection: Projection
   tool: Tool
   viewRequest: { kind: ViewRequestKind; nonce: number }
-  onSelect: (id: string | null) => void
+  onSelect: (id: string | null, additive?: boolean) => void
   onCommit: (objectId: string, patch: ObjectPatch) => void
   onDragEnd: () => void
 }

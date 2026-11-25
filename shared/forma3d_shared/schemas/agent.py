@@ -12,8 +12,8 @@ from forma3d_shared.schemas.scene_object import SceneInventory
 AGENT_JOB_STREAM = "jobs:agent"
 AGENT_JOB_GROUP = "agent-workers"
 
-#: Turn intents. Phase 5 adds version management (undo / restore) handled without Blender.
-Intent = Literal["modeling", "question", "clarify", "export", "undo", "restore"]
+#: Turn intents. Version management (undo / redo / restore) is handled without Blender.
+Intent = Literal["modeling", "question", "clarify", "export", "undo", "redo", "restore"]
 
 
 class AgentJobSpec(BaseModel):
@@ -42,7 +42,8 @@ class AgentContext(BaseModel):
     inventory: SceneInventory
     history: list[ChatTurn] = Field(default_factory=list)
     user_message: str
-    selected_object_id: Optional[str] = None
+    selected_object_id: Optional[str] = None  # primary (most recently selected) object
+    selected_object_ids: list[str] = Field(default_factory=list)  # full selection, primary last
     #: LangGraph thread (one per conversation): checkpoints, pending clarifications.
     thread_id: str = ""
     head_version_id: Optional[uuid.UUID] = None
@@ -139,11 +140,13 @@ class StagedCommitResponse(BaseModel):
 
 
 class RestoreRequest(BaseModel):
-    """Version manager: `undo` restores the head's parent; otherwise `version_number`."""
+    """Version manager: `undo` restores the head's parent, `redo` its most recent child;
+    otherwise `version_number`."""
 
     model_config = ConfigDict(extra="forbid")
 
     undo: bool = False
+    redo: bool = False
     version_number: Optional[int] = Field(default=None, ge=1)
 
 

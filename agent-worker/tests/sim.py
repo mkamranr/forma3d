@@ -132,10 +132,11 @@ class SimBackend:
         self.thread = "thread-1"
 
     # ------------------------------------------------------------------ test helpers
-    def post(self, text: str, selected: str | None = None) -> uuid.UUID:
+    def post(self, text: str, selected: str | list[str] | None = None) -> uuid.UUID:
         jid = uuid.uuid4()
         self.messages.append(("user", text))
-        self.jobs[jid] = {"status": "queued", "text": text, "selected": selected}
+        sel = [selected] if isinstance(selected, str) else list(selected or [])
+        self.jobs[jid] = {"status": "queued", "text": text, "selected": sel}
         return jid
 
     @property
@@ -167,7 +168,8 @@ class SimBackend:
             inventory=SceneInventory.model_validate(self.inventory),
             history=history,
             user_message=job["text"],
-            selected_object_id=job["selected"],
+            selected_object_id=job["selected"][-1] if job["selected"] else None,
+            selected_object_ids=job["selected"],
             version_number=head["number"] if head else None,
             thread_id=self.thread,
             head_version_id=head["id"] if head else None,
@@ -246,6 +248,11 @@ class SimBackend:
             if parent is None:
                 raise BackendRejected(409, {"detail": "There is no earlier version", "code": "nothing_to_undo"})
             self.head = parent
+        elif body.redo:
+            children = [i for i, v in enumerate(self.versions) if v["parent"] == self.head]
+            if not children:
+                raise BackendRejected(409, {"detail": "There is nothing to redo", "code": "nothing_to_redo"})
+            self.head = children[-1]
         else:
             self.head = next(i for i, v in enumerate(self.versions) if v["number"] == body.version_number)
         v = self.versions[self.head]

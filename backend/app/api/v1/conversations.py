@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -18,8 +18,19 @@ from forma3d_shared.schemas.common import ID_PATTERN
 
 router = APIRouter(prefix="/projects/{project_id}/conversation", tags=["conversation"])
 
-PUBLIC_METADATA = ("version_id", "version_number", "action", "error_code", "agent_job_id", "selected_object_id",
-                   "export_version_id", "export_version_number", "quality", "restored")
+PUBLIC_METADATA = (
+    "version_id",
+    "version_number",
+    "action",
+    "error_code",
+    "agent_job_id",
+    "selected_object_id",
+    "selected_object_ids",
+    "export_version_id",
+    "export_version_number",
+    "quality",
+    "restored",
+)
 
 
 class MessageOut(BaseModel):
@@ -43,6 +54,10 @@ class MessageIn(BaseModel):
 
     content: str = Field(min_length=1, max_length=4000)
     selected_object_id: str | None = Field(default=None, pattern=ID_PATTERN)
+    #: Multi-selection (spec 13.3), primary object last.
+    selected_object_ids: list[Annotated[str, Field(pattern=ID_PATTERN, max_length=64)]] = Field(
+        default_factory=list, max_length=50
+    )
 
     @field_validator("content")
     @classmethod
@@ -61,7 +76,11 @@ class PostMessageOut(BaseModel):
 
 def message_out(m: Message) -> MessageOut:
     return MessageOut(
-        id=m.id, role=m.role, content=m.content, intent=m.intent, status=m.status,
+        id=m.id,
+        role=m.role,
+        content=m.content,
+        intent=m.intent,
+        status=m.status,
         metadata={k: v for k, v in (m.metadata_ or {}).items() if k in PUBLIC_METADATA},
         created_at=m.created_at,
     )
@@ -77,12 +96,17 @@ async def get_conversation(
 ) -> ConversationOut:
     svc = ConversationService(session, request.app.state.redis, settings)
     conv = await svc.get_or_create(user.id, project_id)
-    return ConversationOut(id=conv.id, project_id=conv.project_id,
-                           messages=[message_out(m) for m in await svc.messages(conv)])
+    return ConversationOut(
+        id=conv.id, project_id=conv.project_id, messages=[message_out(m) for m in await svc.messages(conv)]
+    )
 
 
-@router.post("/messages", response_model=PostMessageOut, status_code=status.HTTP_202_ACCEPTED,
-             dependencies=[Depends(rate_limit("jobs", "rate_limit_jobs_per_minute"))])
+@router.post(
+    "/messages",
+    response_model=PostMessageOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(rate_limit("jobs", "rate_limit_jobs_per_minute"))],
+)
 async def post_message(
     project_id: uuid.UUID,
     body: MessageIn,
@@ -92,5 +116,7 @@ async def post_message(
     settings: Settings = Depends(get_settings_dep),
 ) -> PostMessageOut:
     svc = ConversationService(session, request.app.state.redis, settings)
-    message, job = await svc.post_message(user.id, project_id, body.content, body.selected_object_id)
+    message, job = await svc.post_message(
+        user.id, project_id, body.content, body.selected_object_id, body.selected_object_ids
+    )
     return PostMessageOut(message=message_out(message), job_id=job.id, status=job.status)

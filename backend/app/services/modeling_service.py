@@ -19,7 +19,7 @@ from app.models import Job, OperationBatch, Project, SceneVersion
 from app.repositories.modeling import ModelingRepository
 from app.repositories.projects import ProjectRepository
 from app.services.events import EventPublisher
-from app.services.locks import ProjectLock
+from app.services.locks import AdmissionGate, ProjectLock
 from app.services.storage import ProjectStorage
 from forma3d_shared.constants.limits import ModelingLimits
 from forma3d_shared.schemas.job import BLENDER_JOB_STREAM, BlenderJobSpec, SourceVersion
@@ -74,6 +74,20 @@ class ModelingService:
         message_id: uuid.UUID | None = None,
         agent_job_id: uuid.UUID | None = None,
         defer_commit: bool = False,
+    ) -> tuple[Job, OperationBatch]:
+        if agent_job_id is not None:  # the agent's own turn already holds the project
+            return await self._submit_batch(user_id, project_id, payload, message_id, agent_job_id, defer_commit)
+        async with AdmissionGate(self.redis, project_id):  # atomic "no agent turn running" -> create job
+            return await self._submit_batch(user_id, project_id, payload, message_id, None, defer_commit)
+
+    async def _submit_batch(
+        self,
+        user_id: uuid.UUID,
+        project_id: uuid.UUID,
+        payload: dict[str, Any],
+        message_id: uuid.UUID | None,
+        agent_job_id: uuid.UUID | None,
+        defer_commit: bool,
     ) -> tuple[Job, OperationBatch]:
         project = await ProjectRepository(self.session).get_owned(user_id, project_id)
         if project is None:

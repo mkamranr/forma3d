@@ -45,9 +45,9 @@ export function ViewportPanel() {
     if (!activeJobId) setResetKey((k) => k + 1)
   }, [activeJobId])
 
-  // Drop selection if the selected object disappeared (deleted / restored version).
+  // Drop selected objects that disappeared (deleted / restored version).
   useEffect(() => {
-    if (s.selectedId && query.data && !objectMap.has(s.selectedId)) s.select(null)
+    if (query.data) s.pruneSelection(new Set(objectMap.keys()))
   }, [objectMap, query.data, s])
 
   useEffect(() => {
@@ -112,6 +112,7 @@ export function ViewportPanel() {
               resetKey={resetKey}
               objects={objectMap}
               selectedId={s.selectedId}
+              selectedIds={s.selectedIds}
               showGrid={s.showGrid}
               showAxes={s.showAxes}
               shading={s.shading}

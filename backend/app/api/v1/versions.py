@@ -6,15 +6,17 @@ import uuid
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_session, get_settings_dep
 from app.core.config import Settings
 from app.core.errors import NotFoundError
-from app.models import Asset, Project, SceneVersion, User
+from app.models import Asset, Message, Project, SceneVersion, User
 from app.repositories.modeling import ModelingRepository
 from app.repositories.projects import ProjectRepository
-from app.schemas.modeling import AssetKind, AssetOut, VersionDetail, VersionOut
+from app.schemas.modeling import AssetKind, AssetOut, CompareOut, CompareRequest, VersionDetail, VersionOut
+from app.services import history_service
 from app.services.storage import ProjectStorage, StoragePathError
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["versions"])
@@ -44,8 +46,22 @@ def _asset_out(project_id: uuid.UUID, version_id: uuid.UUID, a: Asset) -> AssetO
     )
 
 
-def _version_out(project: Project, v: SceneVersion, assets: list[Asset], cls=VersionOut, **extra) -> VersionOut:
+async def prompts_for(session: AsyncSession, versions: list[SceneVersion]) -> dict[uuid.UUID, str]:
+    """The user message that led to each version (the conversation associated with a change)."""
+    ids = [v.message_id for v in versions if v.message_id]
+    if not ids:
+        return {}
+    rows = await session.execute(select(Message.id, Message.content).where(Message.id.in_(ids)))
+    return {mid: content[:300] for mid, content in rows.all()}
+
+
+def _version_out(
+    project: Project, v: SceneVersion, assets: list[Asset], cls=VersionOut, prompts: dict | None = None, **extra
+) -> VersionOut:
+    prompt = (prompts or {}).get(v.message_id) if v.message_id else None
     return cls(
+        source="chat" if v.message_id else "edit",
+        prompt=prompt,
         id=v.id,
         project_id=v.project_id,
         parent_version_id=v.parent_version_id,
@@ -72,7 +88,22 @@ async def list_versions(
     repo = ModelingRepository(session)
     versions = await repo.list_versions(project.id)
     assets = await repo.assets_for_versions([v.id for v in versions])
-    return [_version_out(project, v, assets.get(v.id, [])) for v in versions]
+    prompts = await prompts_for(session, versions)
+    return [_version_out(project, v, assets.get(v.id, []), prompts=prompts) for v in versions]
+
+
+@router.post("/versions/compare", response_model=CompareOut)
+async def compare_versions(
+    project_id: uuid.UUID,
+    body: CompareRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> CompareOut:
+    """Inventory diff between two versions of the project (objects matched by stable id)."""
+    project = await _project(session, user, project_id)
+    return CompareOut.model_validate(
+        await history_service.compare(session, project, body.base_version_id, body.target_version_id)
+    )
 
 
 @router.get("/versions/{version_id}", response_model=VersionDetail)
@@ -89,7 +120,12 @@ async def get_version(
         raise NotFoundError("Version not found")
     assets = await repo.assets_for_versions([version.id])
     return _version_out(
-        project, version, assets.get(version.id, []), VersionDetail, inventory=version.object_inventory or {}
+        project,
+        version,
+        assets.get(version.id, []),
+        VersionDetail,
+        prompts=await prompts_for(session, [version]),
+        inventory=version.object_inventory or {},
     )
 
 

@@ -26,7 +26,10 @@ export type ActiveJob = {
 type ViewRequest = { kind: 'fit' | CameraPreset | 'zoom_in' | 'zoom_out'; nonce: number }
 
 type WorkspaceState = {
+  /** Primary selection (gizmo, properties panel): the most recently selected object. */
   selectedId: string | null
+  /** Whole selection, primary last (Shift/Ctrl/Cmd-click adds or removes objects). */
+  selectedIds: string[]
   prompt: string
   activeTab: InspectorTab
   activeTool: Tool
@@ -38,12 +41,17 @@ type WorkspaceState = {
   projection: Projection
   viewRequest: ViewRequest
   versionsOpen: boolean
+  /** Version to scroll to / highlight when the history dialog opens. */
+  focusVersionId: string | null
+  /** Chat message to scroll to / highlight ("show the conversation for this version"). */
+  highlightMessageId: string | null
   activeJob: ActiveJob | null
   toast: string
 
   reset: () => void
   setPrompt: (prompt: string) => void
-  select: (id: string | null) => void
+  select: (id: string | null, additive?: boolean) => void
+  pruneSelection: (existing: Set<string>) => void
   setActiveTab: (tab: InspectorTab) => void
   setActiveTool: (tool: Tool) => void
   setShowChat: (show: boolean) => void
@@ -53,7 +61,8 @@ type WorkspaceState = {
   setShading: (shading: Shading) => void
   toggleProjection: () => void
   requestView: (kind: ViewRequest['kind']) => void
-  setVersionsOpen: (open: boolean) => void
+  setVersionsOpen: (open: boolean, focusVersionId?: string | null) => void
+  showMessage: (messageId: string | null) => void
   notify: (message: string) => void
   startJob: (id: string, label: string, kind?: JobKind) => void
   jobEvent: (event: JobEvent) => void
@@ -64,6 +73,7 @@ let toastTimer: ReturnType<typeof setTimeout> | undefined
 
 const freshState = () => ({
   selectedId: null as string | null,
+  selectedIds: [] as string[],
   prompt: '',
   activeTab: 'properties' as InspectorTab,
   activeTool: 'select' as Tool,
@@ -75,6 +85,8 @@ const freshState = () => ({
   projection: 'perspective' as Projection,
   viewRequest: { kind: 'fit', nonce: 0 } as ViewRequest,
   versionsOpen: false,
+  focusVersionId: null as string | null,
+  highlightMessageId: null as string | null,
   activeJob: null as ActiveJob | null,
   toast: '',
 })
@@ -84,7 +96,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   reset: () => set(freshState()),
   setPrompt: (prompt) => set({ prompt }),
-  select: (selectedId) => set({ selectedId }),
+  select: (id, additive = false) =>
+    set((s) => {
+      if (!additive || !id) return { selectedId: id, selectedIds: id ? [id] : [] }
+      const selectedIds = s.selectedIds.includes(id) ? s.selectedIds.filter((x) => x !== id) : [...s.selectedIds, id]
+      return { selectedIds, selectedId: selectedIds[selectedIds.length - 1] ?? null }
+    }),
+  pruneSelection: (existing) =>
+    set((s) => {
+      const selectedIds = s.selectedIds.filter((id) => existing.has(id))
+      if (selectedIds.length === s.selectedIds.length) return s // same object: no update, no re-render
+      return { selectedIds, selectedId: selectedIds[selectedIds.length - 1] ?? null }
+    }),
   setActiveTab: (activeTab) => set({ activeTab }),
   setActiveTool: (activeTool) => set({ activeTool }),
   setShowChat: (showChat) => set({ showChat }),
@@ -95,7 +118,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   toggleProjection: () =>
     set((s) => ({ projection: s.projection === 'perspective' ? 'orthographic' : 'perspective' })),
   requestView: (kind) => set((s) => ({ viewRequest: { kind, nonce: s.viewRequest.nonce + 1 } })),
-  setVersionsOpen: (versionsOpen) => set({ versionsOpen }),
+  setVersionsOpen: (versionsOpen, focusVersionId = null) => set({ versionsOpen, focusVersionId }),
+  showMessage: (highlightMessageId) => set({ highlightMessageId }),
 
   notify: (message) => {
     set({ toast: message })

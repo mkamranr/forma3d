@@ -7,6 +7,8 @@ import type {
   SubmitResponse,
   Vec3,
   Version,
+  VersionCompare,
+  HistoryStep,
 } from '../types/scene'
 import { apiFetch, apiRequest } from './api'
 
@@ -43,6 +45,16 @@ export const giveObjectMaterial = (projectId: string, objectId: string, patch: M
 
 export const restoreVersion = (projectId: string, versionId: string) =>
   apiRequest<unknown>(`${p(projectId)}/versions/${encodeURIComponent(versionId)}/restore`, { method: 'POST' })
+
+/** Undo = head -> parent version; redo = head -> its most recent child. Nothing is copied or deleted. */
+export const stepHistory = (projectId: string, direction: 'undo' | 'redo') =>
+  apiRequest<HistoryStep>(`${p(projectId)}/modeling/${direction}`, { method: 'POST' })
+
+export const compareVersions = (projectId: string, baseVersionId: string, targetVersionId: string) =>
+  apiRequest<VersionCompare>(`${p(projectId)}/versions/compare`, {
+    method: 'POST',
+    body: { base_version_id: baseVersionId, target_version_id: targetVersionId },
+  })
 
 /** Authenticated binary download (asset URLs are absolute API paths returned by the backend). */
 export async function fetchAsset(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {

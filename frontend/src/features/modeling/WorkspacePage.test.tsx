@@ -184,7 +184,7 @@ describe('WorkspacePage (live scene)', () => {
     await userEvent.type(screen.getByLabelText('Prompt'), 'Make the legs black metal{Enter}')
 
     const post = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith('/conversation/messages') && (init as RequestInit).method === 'POST')!
-    expect(JSON.parse((post[1] as RequestInit).body as string)).toEqual({ content: 'Make the legs black metal', selected_object_id: 'leg_fl' })
+    expect(JSON.parse((post[1] as RequestInit).body as string)).toEqual({ content: 'Make the legs black metal', selected_object_id: 'leg_fl', selected_object_ids: ['leg_fl'] })
     expect(await screen.findByText('The legs are now black metal.')).toBeInTheDocument()
     expect(screen.getByText('Saved as v2')).toBeInTheDocument()
     expect(screen.getByText(/QA passed · 14 checks · 1 revision/)).toBeInTheDocument()

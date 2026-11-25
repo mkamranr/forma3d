@@ -13,6 +13,7 @@ from forma3d_shared.schemas.scene_object import SceneInventory
 from forma3d_shared.validation import BatchValidationError, validate_batch
 
 from ..providers.base import ChatMessage, LLMProvider
+from .conversation import selection_lines
 from .inspection import scene_report
 from .llm import Result, structured_call
 from .modeling import PlanError, check_plan, compile_plan
@@ -33,8 +34,7 @@ def build_messages(ctx: AgentContext, task: str, targets: list[str]) -> list[Cha
     ]
     if targets:
         lines.append(f"Objects concerned: {', '.join(targets)}.")
-    if ctx.selected_object_id:
-        lines.append(f"Selected object: {ctx.selected_object_id}.")
+    lines.extend(selection_lines(ctx))
     if ctx.user_message.strip() and ctx.user_message.strip() not in task:
         lines.append(f'The user\'s own words: "{ctx.user_message[:500]}"')
     lines.append("Answer with the JSON object only.")

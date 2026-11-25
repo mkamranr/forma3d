@@ -21,7 +21,9 @@ from app.core.time import utcnow
 from app.models import AgentRun, Conversation, Job, Message, ModelingPlan, OperationBatch, Project, SceneVersion
 from app.repositories.modeling import ModelingRepository
 from app.repositories.projects import ProjectRepository
+from app.services import history_service
 from app.services.events import EventPublisher
+from app.services.locks import AdmissionGate
 from app.services.modeling_service import ModelingService
 from app.services.storage import ProjectStorage
 from forma3d_shared import DSL_SCHEMA_VERSION
@@ -68,8 +70,9 @@ class ConversationService:
         )
         conv = (await self.session.execute(stmt)).scalar_one_or_none()
         if conv is None:
-            conv = Conversation(project_id=project.id, user_id=user_id, title=project.name[:200],
-                                langgraph_thread_id=uuid.uuid4().hex)
+            conv = Conversation(
+                project_id=project.id, user_id=user_id, title=project.name[:200], langgraph_thread_id=uuid.uuid4().hex
+            )
             self.session.add(conv)
             await self.session.commit()
         return conv
@@ -100,8 +103,37 @@ class ConversationService:
         return now
 
     async def post_message(
-        self, user_id: uuid.UUID, project_id: uuid.UUID, content: str, selected_object_id: str | None
+        self,
+        user_id: uuid.UUID,
+        project_id: uuid.UUID,
+        content: str,
+        selected_object_id: str | None,
+        selected_object_ids: list[str] | None = None,
     ) -> tuple[Message, Job]:
+        # Full selection, primary (most recently selected) object last.
+        selection = [s for s in dict.fromkeys(selected_object_ids or []) if s != selected_object_id]
+        if selected_object_id:
+            selection.append(selected_object_id)
+        selected_object_id = selection[-1] if selection else None
+        async with AdmissionGate(self.redis, project_id):  # atomic "nothing running" -> create the turn
+            message, job, spec = await self._admit(user_id, project_id, content, selected_object_id, selection)
+        try:
+            await self.redis.xadd(AGENT_JOB_STREAM, {"job": spec.model_dump_json()})
+        except Exception as exc:
+            job.status, job.error_message = "failed", "Assistant queue unavailable"
+            await self.session.commit()
+            raise ServiceUnavailableError("The assistant is unavailable, please try again") from exc
+        await self.events.publish(job.id, "job.queued", stage="queued", message="Waiting for the assistant")
+        return message, job
+
+    async def _admit(
+        self,
+        user_id: uuid.UUID,
+        project_id: uuid.UUID,
+        content: str,
+        selected_object_id: str | None,
+        selection: list[str],
+    ) -> tuple[Message, Job, AgentJobSpec]:
         project = await self._project(user_id, project_id)
         if project.status != "active":
             raise ConflictError("Archived projects are read-only; unarchive it first", code="project_archived")
@@ -112,9 +144,14 @@ class ConversationService:
             raise ConflictError("Another change to this project is still being built", code="project_busy")
 
         conv = await self.get_or_create(user_id, project_id)
-        message = Message(conversation_id=conv.id, role="user", content=content, status="complete",
-                          created_at=await self._next_timestamp(conv.id),
-                          metadata_={"selected_object_id": selected_object_id} if selected_object_id else {})
+        message = Message(
+            conversation_id=conv.id,
+            role="user",
+            content=content,
+            status="complete",
+            created_at=await self._next_timestamp(conv.id),
+            metadata_={"selected_object_id": selected_object_id, "selected_object_ids": selection} if selection else {},
+        )
         self.session.add(message)
         await self.session.flush()
         job = Job(
@@ -127,6 +164,7 @@ class ConversationService:
                 "message_id": str(message.id),
                 "user_id": str(user_id),
                 "selected_object_id": selected_object_id,
+                "selected_object_ids": selection,
             },
         )
         self.session.add(job)
@@ -136,14 +174,7 @@ class ConversationService:
         await self.session.commit()
 
         spec = AgentJobSpec(job_id=job.id, project_id=project.id, conversation_id=conv.id, message_id=message.id)
-        try:
-            await self.redis.xadd(AGENT_JOB_STREAM, {"job": spec.model_dump_json()})
-        except Exception as exc:
-            job.status, job.error_message = "failed", "Assistant queue unavailable"
-            await self.session.commit()
-            raise ServiceUnavailableError("The assistant is unavailable, please try again") from exc
-        await self.events.publish(job.id, "job.queued", stage="queued", message="Waiting for the assistant")
-        return message, job
+        return message, job, spec
 
     # ------------------------------------------------------------------ worker-facing
     async def _agent_job(self, job_id: uuid.UUID, *, for_update: bool = False) -> Job:
@@ -191,6 +222,8 @@ class ConversationService:
             history=history,
             user_message=user_message.content,
             selected_object_id=job.payload.get("selected_object_id"),
+            selected_object_ids=job.payload.get("selected_object_ids")
+            or ([job.payload["selected_object_id"]] if job.payload.get("selected_object_id") else []),
             thread_id=conversation.langgraph_thread_id if conversation else "",
             head_version_id=head.id if head else None,
             version_numbers=list(numbers),
@@ -224,11 +257,17 @@ class ConversationService:
         await self.session.commit()
         modeling = ModelingService(self.session, self.redis, self.settings, storage)
         batch_payload: dict[str, Any] = {
-            "schema_version": DSL_SCHEMA_VERSION, "summary": body.summary, "operations": body.operations,
+            "schema_version": DSL_SCHEMA_VERSION,
+            "summary": body.summary,
+            "operations": body.operations,
         }
         try:
             mjob, batch = await modeling.submit_batch(
-                project.user_id, project.id, batch_payload, message_id=message_id, agent_job_id=job.id,
+                project.user_id,
+                project.id,
+                batch_payload,
+                message_id=message_id,
+                agent_job_id=job.id,
                 defer_commit=body.defer_commit,
             )
         except Exception:
@@ -239,7 +278,10 @@ class ConversationService:
         batch.modeling_plan_id = plan.id
         attempts[str(body.attempt)] = str(mjob.id)
         job.payload = {
-            **job.payload, "modeling_job_id": str(mjob.id), "modeling_plan_id": str(plan.id), "attempts": attempts,
+            **job.payload,
+            "modeling_job_id": str(mjob.id),
+            "modeling_plan_id": str(plan.id),
+            "attempts": attempts,
         }
         await self.session.commit()
         return mjob, batch
@@ -251,11 +293,8 @@ class ConversationService:
             raise ConflictError(f"Agent job is {job.status}", code="job_not_running")
         project = await self.session.get(Project, job.project_id)
         assert project is not None
-        head = await self.session.get(SceneVersion, project.current_version_id) if project.current_version_id else None
-        if body.undo:
-            if head is None or head.parent_version_id is None:
-                raise ConflictError("There is no earlier version to go back to", code="nothing_to_undo")
-            target = await self.session.get(SceneVersion, head.parent_version_id)
+        if body.undo or body.redo:
+            target = await history_service.step_target(self.session, project, "undo" if body.undo else "redo")
         else:
             target = (
                 await self.session.execute(
@@ -348,14 +387,21 @@ class ConversationService:
         await self.session.flush()
         await self.session.commit()
         await self.redis.delete(cancel_flag_key(job.id))
-        event_data = {"message_id": str(message.id), "intent": body.intent, **{
-            k: metadata[k] for k in ("version_id", "version_number", "error_code") if metadata.get(k) is not None
-        }}
+        event_data = {
+            "message_id": str(message.id),
+            "intent": body.intent,
+            **{k: metadata[k] for k in ("version_id", "version_number", "error_code") if metadata.get(k) is not None},
+        }
         if body.success:
             await self.events.publish(job.id, "job.completed", stage="done", message=reply[:300], data=event_data)
         else:
-            await self.events.publish(job.id, "job.cancelled" if cancelled else "job.failed", stage=job.status,
-                                      message=reply[:300], data=event_data)
+            await self.events.publish(
+                job.id,
+                "job.cancelled" if cancelled else "job.failed",
+                stage=job.status,
+                message=reply[:300],
+                data=event_data,
+            )
         return message
 
     async def batch_for(self, batch_id: uuid.UUID) -> OperationBatch | None:

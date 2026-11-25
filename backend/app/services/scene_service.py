@@ -185,6 +185,16 @@ class SceneService:
             raise ConflictError("The project already has a scene", code="scene_exists")
         return await self._submit(user_id, project, desk_batch())
 
+    # ------------------------------------------------------------------------------ history
+    async def step_history(self, user_id: uuid.UUID, project_id: uuid.UUID, direction: str) -> SceneVersion:
+        """Undo (head -> parent) or redo (head -> most recent child)."""
+        from app.services.history_service import step_target
+
+        project = await self._project(user_id, project_id)
+        target = await step_target(self.session, project, direction)
+        await self.restore_version(user_id, project_id, target.id)
+        return target
+
     # ------------------------------------------------------------------------------ restore
     async def restore_version(
         self, user_id: uuid.UUID, project_id: uuid.UUID, version_id: uuid.UUID, *, by_agent: bool = False

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class SubmitResponse(BaseModel):
@@ -52,7 +52,36 @@ class VersionOut(BaseModel):
     object_count: int
     assets: list[AssetOut]
     created_at: datetime
+    #: "chat" when an assistant turn produced it (the user's prompt is in `prompt`), else "edit".
+    source: str = "edit"
+    prompt: str | None = None
 
 
 class VersionDetail(VersionOut):
     inventory: dict[str, Any]
+
+
+class CompareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base_version_id: uuid.UUID
+    target_version_id: uuid.UUID
+
+
+class VersionRef(BaseModel):
+    id: uuid.UUID
+    version_number: int
+    summary: str
+
+
+class CompareOut(BaseModel):
+    base: VersionRef
+    target: VersionRef
+    objects: dict[str, Any]
+    materials: dict[str, Any]
+
+
+class HistoryStepOut(BaseModel):
+    version_id: uuid.UUID
+    version_number: int
+    project: Any

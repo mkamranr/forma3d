@@ -18,6 +18,7 @@ export function useWorkspaceScene() {
   const projectId = useProjectId()
   const scene = useScene(projectId)
   const selectedId = useWorkspaceStore((s) => s.selectedId)
+  const selectedIds = useWorkspaceStore((s) => s.selectedIds)
   const inventory = scene.data?.inventory ?? EMPTY
 
   return useMemo(() => {
@@ -34,6 +35,8 @@ export function useWorkspaceScene() {
       materialMap,
       materialUsers,
       selected: selectedId ? objectMap.get(selectedId) ?? null : null,
+      /** Whole selection (primary last), only objects that exist in the scene. */
+      selection: selectedIds.map((id) => objectMap.get(id)).filter((o): o is SceneObject => !!o),
     }
-  }, [projectId, scene, inventory, selectedId])
+  }, [projectId, scene, inventory, selectedId, selectedIds])
 }

@@ -15,8 +15,9 @@ Full specification: [`project-specification.md`](project-specification.md).
 | 3 | Interactive workspace wired to real scenes | **Done** (pending first run on the Docker host) |
 | 4 | LLM integration (vLLM) — conversational vertical slice (§23) | **Done**, verified against a real vLLM model |
 | 5 | LangGraph multi-agent workflow (inspection, QA, clarification, revision, resume) | **Done**, verified against a real vLLM model |
-| 6 | Conversational editing & versioning | Next |
-| 7–8 | Advanced modeling, hardening | — |
+| 6 | Conversational editing & versioning (undo/redo, compare, branches, multi-select) | **Done**, verified against a real vLLM model |
+| 7 | Advanced modeling and rendering | Next |
+| 8 | Hardening | — |
 
 ## Repository layout
 
@@ -147,8 +148,10 @@ VITE_API_PROXY=http://localhost:8000 npm run dev
 | POST | `/api/v1/projects/{id}/scene/objects/{object_id}/material` | give one object its own material |
 | PATCH | `/api/v1/projects/{id}/scene/materials/{material_id}` | edit a (possibly shared) material |
 | POST | `/api/v1/projects/{id}/versions/{vid}/restore` | move the head; next edit branches from it |
+| POST | `/api/v1/projects/{id}/modeling/undo` · `redo` | head → parent / most recent child (409 `nothing_to_undo` / `nothing_to_redo`) |
+| POST | `/api/v1/projects/{id}/versions/compare` | `{base_version_id, target_version_id}` → objects/materials added, removed, changed (per field) |
 | GET | `/api/v1/projects/{id}/conversation` | conversation + messages (assistant metadata: `version_number`, `action: export`, ...) |
-| POST | `/api/v1/projects/{id}/conversation/messages` | `{content, selected_object_id?}` → 202 `{message, job_id}`; follow `job_id` via SSE; 409 `project_busy` |
+| POST | `/api/v1/projects/{id}/conversation/messages` | `{content, selected_object_ids?, selected_object_id?}` → 202 `{message, job_id}`; follow `job_id` via SSE; 409 `project_busy` |
 
 All scene edits compile to DSL and return 202 + `job_id`, exactly like `modeling/execute`.
 | POST | `/internal/v1/jobs/{id}/start` · `complete` | worker callbacks, `X-Internal-Token`, internal network only |
@@ -181,7 +184,8 @@ Interactive docs at `/api/docs` when `APP_ENV != production`.
 - Every edit is a Blender job (≈5–20 s each, CPU thumbnail included); edits are disabled while one runs.
 - Gizmo resize previews scale children, but the committed `set_dimensions` only resizes the object's
   own mesh, so children snap back when the new version loads.
-- Restore moves the head pointer; undo/redo shortcuts and version compare are Phase 6.
+- Undo/redo move the head pointer over immutable versions (no Blender job); redo follows the most
+  recent child, so after undo + a new edit, redo goes to the new branch.
 - Project delete is a soft delete; file purge/retention job is Phase 8.
 - Duplicate still copies project metadata only (not versions); copying the head version is Phase 6.
 - Image tags are pinned; digest pinning and the offline bundle are Phase 8.

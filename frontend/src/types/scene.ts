@@ -54,7 +54,31 @@ export type Version = {
   object_count: number
   assets: Asset[]
   created_at: string
+  /** `chat`: produced by an assistant turn (`prompt` is the user's message); `edit`: a direct UI edit. */
+  source?: 'chat' | 'edit'
+  prompt?: string | null
 }
+
+export type FieldChange = { before: unknown; after: unknown }
+export type ObjectChange = { object_id: string; name: string; fields: Record<string, FieldChange> }
+export type MaterialChange = { material_id: string; name: string; fields: Record<string, FieldChange> }
+export type VersionCompare = {
+  base: { id: string; version_number: number; summary: string }
+  target: { id: string; version_number: number; summary: string }
+  objects: {
+    added: { object_id: string; name: string }[]
+    removed: { object_id: string; name: string }[]
+    changed: ObjectChange[]
+    unchanged: number
+  }
+  materials: {
+    added: { material_id: string; name: string }[]
+    removed: { material_id: string; name: string }[]
+    changed: MaterialChange[]
+  }
+}
+
+export type HistoryStep = { version_id: string; version_number: number }
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
@@ -114,6 +138,7 @@ export type MessageMetadata = {
   error_code?: string
   agent_job_id?: string
   selected_object_id?: string
+  selected_object_ids?: string[]
   /** Set when the assistant restored an earlier version (undo / "go back to version N"). */
   restored?: number
   /** Quality Agent verdict for an agent-built version. */
@@ -124,7 +149,7 @@ export type ConversationMessage = {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
-  intent: 'modeling' | 'question' | 'clarify' | 'export' | 'undo' | 'restore' | null
+  intent: 'modeling' | 'question' | 'clarify' | 'export' | 'undo' | 'redo' | 'restore' | null
   status: string
   metadata: MessageMetadata
   created_at: string

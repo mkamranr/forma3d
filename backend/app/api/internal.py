@@ -174,9 +174,7 @@ async def agent_submit_plan(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings_dep),
 ) -> SubmitPlanResponse:
-    mjob, batch = await _conv(request, session, settings).submit_plan(
-        job_id, body, ProjectStorage(settings.data_root)
-    )
+    mjob, batch = await _conv(request, session, settings).submit_plan(job_id, body, ProjectStorage(settings.data_root))
     return SubmitPlanResponse(modeling_job_id=mjob.id, operation_batch_id=batch.id)
 
 

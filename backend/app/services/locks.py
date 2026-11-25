@@ -41,3 +41,33 @@ class ProjectLock:
                 return True
             except WatchError:
                 return False
+
+
+class AdmissionGate:
+    """Short per-project mutex around "is anything running? -> create a job", so two simultaneous
+    requests (chat messages, UI edits) cannot both pass the check (spec Scenario E). The second
+    request waits for the first to commit and then sees its job."""
+
+    def __init__(self, redis: Redis, project_id: uuid.UUID, *, ttl_seconds: int = 15, wait_seconds: float = 5.0):
+        self.redis = redis
+        self.key = f"admit:project:{project_id}"
+        self.token = str(uuid.uuid4())
+        self.ttl = ttl_seconds
+        self.wait = wait_seconds
+
+    async def __aenter__(self) -> AdmissionGate:
+        import asyncio
+        import time
+
+        deadline = time.monotonic() + self.wait
+        while not await self.redis.set(self.key, self.token, nx=True, ex=self.ttl):
+            if time.monotonic() > deadline:
+                from app.core.errors import ConflictError
+
+                raise ConflictError("Another change to this project is being started", code="project_busy")
+            await asyncio.sleep(0.05)
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        if _s(await self.redis.get(self.key)) == self.token:
+            await self.redis.delete(self.key)

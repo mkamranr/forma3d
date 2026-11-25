@@ -38,7 +38,7 @@ function ShapeIcon({ obj }: { obj: SceneObject }) {
 
 export function SceneTree() {
   const { projectId, inventory, objectMap } = useWorkspaceScene()
-  const selectedId = useWorkspaceStore((s) => s.selectedId)
+  const selectedIds = useWorkspaceStore((s) => s.selectedIds)
   const busy = useWorkspaceStore((s) => !!s.activeJob)
   const select = useWorkspaceStore((s) => s.select)
   const run = useModelingAction()
@@ -87,7 +87,7 @@ export function SceneTree() {
 
   const renderNode = (node: Node, depth: number) => {
     const { obj } = node
-    const chosen = selectedId === obj.object_id
+    const chosen = selectedIds.includes(obj.object_id)
     const isCollapsed = collapsed.has(obj.object_id)
     return (
       <div key={obj.object_id} role="none">
@@ -97,7 +97,7 @@ export function SceneTree() {
           aria-expanded={node.children.length ? !isCollapsed : undefined}
           className={`tree-row child ${chosen ? 'chosen' : ''} ${obj.visible ? '' : 'is-hidden'}`}
           style={{ paddingLeft: 10 + depth * 14 }}
-          onClick={() => select(obj.object_id)}
+          onClick={(e) => select(obj.object_id, e.shiftKey || e.ctrlKey || e.metaKey)}
           onDoubleClick={() => !busy && setRenaming({ id: obj.object_id, value: obj.name })}
         >
           {node.children.length ? (
@@ -158,7 +158,7 @@ export function SceneTree() {
           <Plus size={14} />
         </button>
       </div>
-      <div className="scene-tree" role="tree" aria-label="Scene hierarchy">
+      <div className="scene-tree" role="tree" aria-label="Scene hierarchy" aria-multiselectable="true" title="Shift/Ctrl-click to select several objects">
         <div className="tree-row root">
           <ChevronDown size={13} /><Folder size={14} /><span>Scene Collection</span>
           <span className="tree-number">{inventory.objects.length}</span>
