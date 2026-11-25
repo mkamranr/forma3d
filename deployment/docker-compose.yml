@@ -70,7 +70,14 @@ services:
     build:
       context: ..
       dockerfile: agent-worker/Dockerfile
+      target: runtime
     env_file: ../.env
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8000
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    # Finish the current LLM call / relay before stopping (un-ACKed jobs are reclaimed anyway).
+    stop_grace_period: 30s
     depends_on:
       redis:
         condition: service_healthy

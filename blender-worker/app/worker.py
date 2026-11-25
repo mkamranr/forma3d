@@ -151,8 +151,10 @@ class Worker:
                     log("worker.reclaim_failed", error=type(exc).__name__)
             try:
                 batches = self.redis.xreadgroup(
-                    BLENDER_JOB_GROUP, self.cfg.worker_id, {BLENDER_JOB_STREAM: ">"}, count=1, block=5000
+                    BLENDER_JOB_GROUP, self.cfg.worker_id, {BLENDER_JOB_STREAM: ">"}, count=1, block=2000
                 )
+            except redis.TimeoutError:
+                continue  # an idle poll that ran into the socket timeout is just an empty read
             except redis.ConnectionError as exc:
                 log("worker.redis_unavailable", error=str(exc)[:200])
                 self.stop.wait(3)

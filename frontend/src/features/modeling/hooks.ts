@@ -2,16 +2,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect } from 'react'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { ApiError } from '../../services/api'
+import { getConversation, postMessage } from '../../services/conversation'
 import { followJobEvents, TERMINAL_EVENT_TYPES } from '../../services/jobEvents'
 import { fetchAsset, getJob, getScene, listVersions, restoreVersion } from '../../services/scene'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
-import type { SubmitResponse, Version } from '../../types/scene'
+import type { Conversation, SubmitResponse, Version } from '../../types/scene'
 import { projectKeys } from '../projects/hooks'
 
 export const sceneKeys = {
   scene: (projectId: string) => ['scene', projectId] as const,
   versions: (projectId: string) => ['versions', projectId] as const,
   model: (versionId: string) => ['model', versionId] as const,
+  conversation: (projectId: string) => ['conversation', projectId] as const,
 }
 
 export function useScene(projectId: string) {
@@ -25,6 +27,40 @@ export function useScene(projectId: string) {
 
 export function useVersions(projectId: string) {
   return useQuery({ queryKey: sceneKeys.versions(projectId), queryFn: () => listVersions(projectId), enabled: !!projectId })
+}
+
+export function useConversation(projectId: string) {
+  return useQuery({
+    queryKey: sceneKeys.conversation(projectId),
+    queryFn: () => getConversation(projectId),
+    enabled: !!projectId,
+  })
+}
+
+/** Post a chat message; the reply arrives when the agent job finishes (tracked by useJobTracker). */
+export function useSendMessage(projectId: string) {
+  const qc = useQueryClient()
+  return useCallback(
+    async (text: string, selectedObjectId: string | null): Promise<boolean> => {
+      const { activeJob, startJob, notify } = useWorkspaceStore.getState()
+      if (activeJob) {
+        notify('Still working on the previous request — try again in a moment.')
+        return false
+      }
+      try {
+        const res = await postMessage(projectId, text, selectedObjectId)
+        qc.setQueryData(sceneKeys.conversation(projectId), (old: Conversation | undefined) =>
+          old ? { ...old, messages: [...old.messages, res.message] } : old,
+        )
+        startJob(res.job_id, text, 'agent')
+        return true
+      } catch (err) {
+        notify(errorMessage(err))
+        return false
+      }
+    },
+    [projectId, qc],
+  )
 }
 
 export const glbUrl = (version: Version | null | undefined) => version?.assets.find((a) => a.kind === 'glb')?.url ?? null
@@ -91,33 +127,37 @@ export function useJobTracker(projectId: string) {
   const serverJob = scene.data?.active_job
   useEffect(() => {
     if (serverJob && !useWorkspaceStore.getState().activeJob) {
-      useWorkspaceStore.getState().startJob(serverJob.id, 'Building')
+      useWorkspaceStore.getState().startJob(serverJob.id, 'Building', serverJob.job_type === 'agent' ? 'agent' : 'edit')
     }
   }, [serverJob])
 
   useEffect(() => {
     if (!activeJobId) return
     const controller = new AbortController()
-    const { jobEvent, endJob, notify, say } = useWorkspaceStore.getState()
+    const { jobEvent, endJob, notify } = useWorkspaceStore.getState()
     let finished = false
 
     const finish = async (status: 'succeeded' | 'failed' | 'cancelled', message: string, versionNumber?: unknown) => {
       if (finished) return
       finished = true
-      const label = useWorkspaceStore.getState().activeJob?.label ?? 'Change'
+      const job = useWorkspaceStore.getState().activeJob
+      const label = job?.label ?? 'Change'
       await Promise.all([
         qc.invalidateQueries({ queryKey: sceneKeys.scene(projectId) }),
         qc.invalidateQueries({ queryKey: sceneKeys.versions(projectId) }),
+        qc.invalidateQueries({ queryKey: sceneKeys.conversation(projectId) }),
         qc.invalidateQueries({ queryKey: projectKeys.all }),
       ])
       endJob(activeJobId)
-      if (status === 'succeeded') {
+      if (job?.kind === 'agent') {
+        // The assistant's reply (success or failure) is in the conversation; only flag new versions.
+        if (status === 'succeeded' && versionNumber) notify(`Saved as version ${versionNumber}`)
+      } else if (status === 'succeeded') {
         notify(versionNumber ? `${label} — saved as version ${versionNumber}` : `${label} — saved`)
       } else if (status === 'cancelled') {
         notify('Change cancelled — the scene is unchanged')
       } else {
-        notify(`Change failed: ${message}`)
-        say('assistant', `That change could not be applied: ${message} The previous version is unchanged.`)
+        notify(`Change failed: ${message} The previous version is unchanged.`)
       }
     }
 

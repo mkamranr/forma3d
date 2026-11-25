@@ -1,4 +1,4 @@
-import type { SceneInventory, SceneObject, SceneState, Version } from '../types/scene'
+import type { Conversation, ConversationMessage, SceneInventory, SceneObject, SceneState, Version } from '../types/scene'
 
 export const obj = (o: Partial<SceneObject> & Pick<SceneObject, 'object_id' | 'name'>): SceneObject => ({
   type: 'MESH',
@@ -87,3 +87,13 @@ export function sseResponse(frames: { id: string; type: string; data: Record<str
   })
   return new Response(stream, { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
 }
+
+export const chatMessage = (m: Partial<ConversationMessage> & Pick<ConversationMessage, 'id' | 'role' | 'content'>): ConversationMessage => ({
+  intent: null,
+  status: 'complete',
+  metadata: {},
+  created_at: '2026-11-24T10:00:00Z',
+  ...m,
+})
+
+export const conversation = (messages: ConversationMessage[] = []): Conversation => ({ id: 'c1', project_id: 'p1', messages })

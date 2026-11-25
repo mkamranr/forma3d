@@ -18,8 +18,12 @@ services:
       target: dev
 
   agent-worker:
+    image: forma3d/agent-worker:dev
+    build:
+      target: dev
     volumes:
       - ../agent-worker/app:/app/app
+      - ../agent-worker/tests:/app/tests
 
   blender-worker:
     image: forma3d/blender-worker:dev

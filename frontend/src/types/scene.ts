@@ -105,4 +105,27 @@ export type ObjectPatch = Partial<{
 
 export type MaterialPatch = Partial<Pick<SceneMaterial, 'name' | 'base_color' | 'metallic' | 'roughness' | 'alpha'>>
 
-export type ChatMessage = { role: 'assistant' | 'user'; text: string; time: string }
+export type MessageMetadata = {
+  version_id?: string
+  version_number?: number
+  action?: 'export'
+  export_version_id?: string
+  export_version_number?: number
+  error_code?: string
+  agent_job_id?: string
+  selected_object_id?: string
+}
+
+export type ConversationMessage = {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  intent: 'modeling' | 'question' | 'clarify' | 'export' | null
+  status: string
+  metadata: MessageMetadata
+  created_at: string
+}
+
+export type Conversation = { id: string; project_id: string; messages: ConversationMessage[] }
+
+export type PostMessageResponse = { message: ConversationMessage; job_id: string; status: string }

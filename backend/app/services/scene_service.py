@@ -92,7 +92,8 @@ class SceneService:
         stmt = (
             select(Job)
             .where(Job.project_id == project.id, Job.status.in_(("queued", "running")))
-            .order_by(Job.created_at.desc())
+            # A chat turn owns its modeling job: resume the agent job, it carries the reply.
+            .order_by((Job.job_type == "agent").desc(), Job.created_at.desc())
             .limit(1)
         )
         active = (await self.session.execute(stmt)).scalar_one_or_none()

@@ -13,15 +13,16 @@ Full specification: [`project-specification.md`](project-specification.md).
 | 1 | Infrastructure, auth, project CRUD, dashboard, health checks | **Done** (pending first run on the Docker host) |
 | 2 | Blender worker, modeling DSL v1, validator, GLB export, versioned commits | **Done** (pending first run on the Docker host) |
 | 3 | Interactive workspace wired to real scenes | **Done** (pending first run on the Docker host) |
-| 4 | LLM integration (vLLM) — end-to-end vertical slice | Next |
-| 5–8 | LangGraph agents, conversational editing, advanced modeling, hardening | — |
+| 4 | LLM integration (vLLM) — conversational vertical slice (§23) | **Done** with the offline planner; real-vLLM run pending |
+| 5 | LangGraph multi-agent workflow (inspection, QA, clarification, revision) | Next |
+| 6–8 | Conversational editing & versioning, advanced modeling, hardening | — |
 
 ## Repository layout
 
 ```
 frontend/        React + TS + Vite (R3F viewport, TanStack Query, Zustand, Tailwind for new screens)
 backend/         FastAPI, SQLAlchemy 2 (async), Alembic, JWT + rotating refresh cookies
-agent-worker/    LangGraph agent worker (Phase 1: heartbeat stub)
+agent-worker/    Agent worker: LLM providers (vLLM/OpenAI-compatible, offline fake), planner + repair loop
 blender-worker/  Redis-stream consumer + headless Blender 4.5 runtime (bl_runtime: stdlib + bpy)
 shared/          forma3d_shared: modeling DSL, validator, job/event/inventory contracts
 deployment/      docker-compose.yml, docker-compose.dev.yml, scripts
@@ -72,12 +73,41 @@ cd backend && BLENDER_BIN=/path/to/blender .venv/Scripts/python -m pytest -q tes
 
 Run one job spec without Redis/backend: `cd blender-worker && python -m app.run_once spec.json`.
 
-**Whole app without Docker** (SQLite + in-process fake Redis + real Blender; dev/demo only):
+Agent worker (no LLM needed: tests use the deterministic `FakeProvider` and mocked HTTP):
+
+```bash
+cd agent-worker && ../backend/.venv/Scripts/python -m pytest -q
+```
+
+**Whole app without Docker** (SQLite + fakeredis TCP server + the real blender-worker and
+agent-worker processes + real Blender; dev/demo only):
 
 ```bash
 BLENDER_BIN=/path/to/blender backend/.venv/Scripts/python deployment/scripts/dev_local.py   # API on :8000
 cd frontend && npm run dev                                                                    # UI on :5173
 ```
+
+The agent uses the offline planner unless an LLM is configured, e.g.
+`LLM_BASE_URL=http://gpu-host:8000/v1 LLM_MODEL=<served model name>` before `dev_local.py`.
+
+## LLM configuration
+
+The agent worker talks to any OpenAI-compatible `/chat/completions` endpoint (vLLM recommended).
+Set in `.env`; the endpoint must be reachable from the `agent-worker` container:
+
+| Variable | Meaning |
+|---|---|
+| `LLM_PROVIDER` | `vllm` / `openai_compatible`, or `fake` for the offline planner (CI, demos) |
+| `LLM_BASE_URL` | e.g. `http://10.0.0.5:8000/v1` |
+| `LLM_MODEL`, `LLM_MODEL_PLANNING` | served model name (`vllm serve <name>`); planning override optional |
+| `LLM_STRUCTURED_OUTPUT` | `json_schema` (vLLM >= 0.6 `response_format`), `guided_json` (older vLLM), `json_object`, `none` |
+| `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`, `LLM_TIMEOUT_SECONDS` | sampling and limits (defaults 0.2 / 8192 / 120 s) |
+| `AGENT_MAX_RETRIES` | repair attempts when a plan fails to parse or validate (default 2) |
+
+Whatever the model returns is parsed, schema-checked and run through the same DSL validator as
+every other edit before Blender sees it. Invalid plans go back to the model with the validator's
+issues; after the retries the user gets an explanation and the scene is unchanged. A
+structured-output mode the server rejects fails fast with a clear error (`llm_unavailable`).
 
 Frontend (Node 20):
 
@@ -112,9 +142,12 @@ VITE_API_PROXY=http://localhost:8000 npm run dev
 | POST | `/api/v1/projects/{id}/scene/objects/{object_id}/material` | give one object its own material |
 | PATCH | `/api/v1/projects/{id}/scene/materials/{material_id}` | edit a (possibly shared) material |
 | POST | `/api/v1/projects/{id}/versions/{vid}/restore` | move the head; next edit branches from it |
+| GET | `/api/v1/projects/{id}/conversation` | conversation + messages (assistant metadata: `version_number`, `action: export`, ...) |
+| POST | `/api/v1/projects/{id}/conversation/messages` | `{content, selected_object_id?}` → 202 `{message, job_id}`; follow `job_id` via SSE; 409 `project_busy` |
 
 All scene edits compile to DSL and return 202 + `job_id`, exactly like `modeling/execute`.
 | POST | `/internal/v1/jobs/{id}/start` · `complete` | worker callbacks, `X-Internal-Token`, internal network only |
+| GET/POST | `/internal/v1/agent-jobs/{id}/context` · `plan` · `runs` · `complete` | agent worker: context, validated plan, LLM call records, reply |
 
 DSL reference: [`docs/modeling-dsl.md`](docs/modeling-dsl.md). Try it after `make up` (token from login):
 
@@ -130,8 +163,13 @@ Interactive docs at `/api/docs` when `APP_ENV != production`.
 - Blender runs CPU-only (Cycles thumbnail at 384 px, a few seconds per job); GPU compose is Phase 8.
 - The Linux Blender image pins and checksum-verifies the official tarball but has not yet been built
   on the Docker host; all Blender tests so far ran against Blender 4.5.17 on Windows.
-- The chat assistant is a **rule-based preview** (add / recolour / resize / hide / delete) that runs
-  real edits through the pipeline; the LLM planner replaces it in Phase 4.
+- Phase 4 is verified end to end with the offline planner and real Blender, **not yet against a
+  real vLLM model**; prompt tuning for the chosen model follows that first run.
+- The planner is one structured LLM call plus bounded repair: no post-build inspection/QA,
+  clarification state or resumable workflow yet (LangGraph, Phase 5). Stage events stream; reply
+  text is not streamed token by token.
+- The offline planner only understands the §23 scenario phrases (desk, black legs, drawers, walnut,
+  export, simple questions); anything else gets a clarifying reply.
 - Every edit is a Blender job (≈5–20 s each, CPU thumbnail included); edits are disabled while one runs.
 - Gizmo resize previews scale children, but the committed `set_dimensions` only resizes the object's
   own mesh, so children snap back when the new version loads.

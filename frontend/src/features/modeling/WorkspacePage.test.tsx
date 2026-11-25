@@ -4,7 +4,7 @@ import { Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from '../../stores/authStore'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
-import { deskInventory, project, sceneState, sseResponse, version } from '../../test/fixtures'
+import { chatMessage, conversation, deskInventory, project, sceneState, sseResponse, version } from '../../test/fixtures'
 import { json, mockFetch, renderWithProviders } from '../../test/utils'
 import { WorkspacePage } from './WorkspacePage'
 
@@ -37,6 +37,7 @@ describe('WorkspacePage (live scene)', () => {
   it('renders the committed hierarchy and selects objects by stable id', async () => {
     mockFetch({
       'GET /api/v1/projects/p1': () => json(200, project()),
+      'GET /api/v1/projects/p1/conversation': () => json(200, conversation()),
       'GET /api/v1/projects/p1/scene': () => json(200, sceneState(1)),
       'GET /api/v1/projects/p1/versions': () => json(200, [version(1, { is_current: true })]),
     })
@@ -55,6 +56,7 @@ describe('WorkspacePage (live scene)', () => {
     let renamed = false
     const fetchMock = mockFetch({
       'GET /api/v1/projects/p1': () => json(200, project()),
+      'GET /api/v1/projects/p1/conversation': () => json(200, conversation()),
       'GET /api/v1/projects/p1/scene': () => {
         if (!renamed) return json(200, sceneState(1))
         const inv = { ...deskInventory, objects: deskInventory.objects.map((o) => (o.object_id === 'desk_top' ? { ...o, name: 'Walnut Top' } : o)) }
@@ -87,6 +89,7 @@ describe('WorkspacePage (live scene)', () => {
   it('commits a typed location on Enter as one edit', async () => {
     const fetchMock = mockFetch({
       'GET /api/v1/projects/p1': () => json(200, project()),
+      'GET /api/v1/projects/p1/conversation': () => json(200, conversation()),
       'GET /api/v1/projects/p1/scene': () => json(200, sceneState(1)),
       'GET /api/v1/projects/p1/versions': () => json(200, []),
       'PATCH /api/v1/projects/p1/scene/objects/desk_top': () => json(202, { job_id: 'j9', operation_batch_id: 'b', status: 'queued' }),
@@ -107,6 +110,7 @@ describe('WorkspacePage (live scene)', () => {
   it('confirms before deleting an object with children (recursive)', async () => {
     const fetchMock = mockFetch({
       'GET /api/v1/projects/p1': () => json(200, project()),
+      'GET /api/v1/projects/p1/conversation': () => json(200, conversation()),
       'GET /api/v1/projects/p1/scene': () => json(200, sceneState(1)),
       'GET /api/v1/projects/p1/versions': () => json(200, []),
       'DELETE /api/v1/projects/p1/scene/objects/desk_top': () => json(202, { job_id: 'j2', operation_batch_id: 'b', status: 'queued' }),
@@ -125,6 +129,7 @@ describe('WorkspacePage (live scene)', () => {
   it('shows the empty state and builds the sample desk', async () => {
     const fetchMock = mockFetch({
       'GET /api/v1/projects/p1': () => json(200, project({ current_version_id: null, version_count: 0 })),
+      'GET /api/v1/projects/p1/conversation': () => json(200, conversation()),
       'GET /api/v1/projects/p1/scene': () => json(200, sceneState(null)),
       'GET /api/v1/projects/p1/versions': () => json(200, []),
       'POST /api/v1/projects/p1/scene/starter': () => json(202, { job_id: 'j3', operation_batch_id: 'b', status: 'queued' }),
@@ -140,6 +145,7 @@ describe('WorkspacePage (live scene)', () => {
   it('explains a busy project instead of failing silently', async () => {
     mockFetch({
       'GET /api/v1/projects/p1': () => json(200, project()),
+      'GET /api/v1/projects/p1/conversation': () => json(200, conversation()),
       'GET /api/v1/projects/p1/scene': () => json(200, sceneState(1)),
       'GET /api/v1/projects/p1/versions': () => json(200, []),
       'PATCH /api/v1/projects/p1/scene/objects/leg_fl': () =>
@@ -150,5 +156,78 @@ describe('WorkspacePage (live scene)', () => {
     await act(async () => userEvent.click(within(row).getByTitle('Hide')))
     await waitFor(() => expect(useWorkspaceStore.getState().toast).toMatch(/still building/))
     expect(useWorkspaceStore.getState().activeJob).toBeNull()
+  })
+
+  it('sends a chat message with the selection and shows the reply with its version', async () => {
+    let done = false
+    const user = chatMessage({ id: 'm1', role: 'user', content: 'Make the legs black metal', metadata: { selected_object_id: 'leg_fl' } })
+    const fetchMock = mockFetch({
+      'GET /api/v1/projects/p1': () => json(200, project()),
+      'GET /api/v1/projects/p1/scene': () => json(200, sceneState(done ? 2 : 1)),
+      'GET /api/v1/projects/p1/versions': () => json(200, done ? [version(2, { is_current: true }), version(1)] : [version(1, { is_current: true })]),
+      'GET /api/v1/projects/p1/conversation': () =>
+        json(200, conversation(done ? [user, chatMessage({ id: 'm2', role: 'assistant', content: 'The legs are now black metal.', intent: 'modeling', metadata: { version_id: 'v2', version_number: 2 } })] : [])),
+      'POST /api/v1/projects/p1/conversation/messages': () => json(202, { message: user, job_id: 'a1', status: 'queued' }),
+      'GET /api/v1/jobs/a1/events': () => {
+        done = true
+        return sseResponse([
+          { id: '1-0', type: 'agent.started', data: { job_id: 'a1', stage: 'context', message: 'Reading your scene' } },
+          { id: '2-0', type: 'plan.created', data: { job_id: 'a1', stage: 'planned', message: 'Planned 4 operation(s)' } },
+          { id: '3-0', type: 'blender.progress', data: { job_id: 'a1', stage: 'executing', message: 'Exporting GLB' } },
+          { id: '4-0', type: 'job.completed', data: { job_id: 'a1', stage: 'done', message: 'The legs are now black metal.', data: { version_number: 2, intent: 'modeling' } } },
+        ])
+      },
+    })
+    renderWorkspace()
+    expect(await screen.findByText(/Your workspace is ready/)).toBeInTheDocument()
+    await userEvent.click(await within(tree()).findByText('Leg Front Left'))
+    await userEvent.type(screen.getByLabelText('Prompt'), 'Make the legs black metal{Enter}')
+
+    const post = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith('/conversation/messages') && (init as RequestInit).method === 'POST')!
+    expect(JSON.parse((post[1] as RequestInit).body as string)).toEqual({ content: 'Make the legs black metal', selected_object_id: 'leg_fl' })
+    expect(await screen.findByText('The legs are now black metal.')).toBeInTheDocument()
+    expect(screen.getByText('Saved as v2')).toBeInTheDocument()
+    await waitFor(() => expect(useWorkspaceStore.getState().activeJob).toBeNull())
+    expect(useWorkspaceStore.getState().toast).toBe('Saved as version 2')
+    expect(screen.getByLabelText('Prompt')).toHaveValue('')
+  })
+
+  it('offers a GLB download for export replies, pinned to the exported version', async () => {
+    mockFetch({
+      'GET /api/v1/projects/p1': () => json(200, project()),
+      'GET /api/v1/projects/p1/scene': () => json(200, sceneState(3)),
+      'GET /api/v1/projects/p1/versions': () => json(200, [version(3, { is_current: true }), version(2), version(1)]),
+      'GET /api/v1/projects/p1/conversation': () =>
+        json(200, conversation([
+          chatMessage({ id: 'm1', role: 'user', content: 'Export it' }),
+          chatMessage({ id: 'm2', role: 'assistant', content: 'Ready.', intent: 'export', metadata: { action: 'export', export_version_id: 'v2', export_version_number: 2 } }),
+        ])),
+    })
+    renderWorkspace()
+    expect(await screen.findByRole('button', { name: /Download GLB · v2/ })).toBeInTheDocument()
+  })
+
+  it('shows a failed turn as an assistant reply, not as a toast', async () => {
+    let done = false
+    const user = chatMessage({ id: 'm1', role: 'user', content: 'Add a spaceship' })
+    mockFetch({
+      'GET /api/v1/projects/p1': () => json(200, project()),
+      'GET /api/v1/projects/p1/scene': () => json(200, sceneState(1)),
+      'GET /api/v1/projects/p1/versions': () => json(200, [version(1, { is_current: true })]),
+      'GET /api/v1/projects/p1/conversation': () =>
+        json(200, conversation(done ? [user, chatMessage({ id: 'm2', role: 'assistant', status: 'failed', content: 'I could not plan that. The scene is unchanged.', metadata: { error_code: 'plan_invalid' } })] : [])),
+      'POST /api/v1/projects/p1/conversation/messages': () => json(202, { message: user, job_id: 'a2', status: 'queued' }),
+      'GET /api/v1/jobs/a2/events': () => {
+        done = true
+        return sseResponse([{ id: '1-0', type: 'job.failed', data: { job_id: 'a2', stage: 'failed', message: 'I could not plan that.' } }])
+      },
+    })
+    renderWorkspace()
+    await within(tree()).findByText('Desk Top')
+    await userEvent.type(screen.getByLabelText('Prompt'), 'Add a spaceship{Enter}')
+    const reply = await screen.findByText('I could not plan that. The scene is unchanged.')
+    expect(reply).toHaveClass('failed')
+    await waitFor(() => expect(useWorkspaceStore.getState().activeJob).toBeNull())
+    expect(useWorkspaceStore.getState().toast).toBe('')
   })
 })

@@ -61,7 +61,7 @@ Living record of decisions beyond `project-specification.md`. Update as phases l
 
 ## Phase 3 — Interactive workspace on real scenes
 
-- **One write path**: inspector, hierarchy, gizmos and the (rule-based) chat call `/scene/*` endpoints
+- **One write path**: inspector, hierarchy and gizmos call `/scene/*` endpoints
   that compile edits into small DSL batches and reuse `ModelingService.submit_batch` — same validator,
   project lock, Blender job and immutable version as everything else. No client-side scene copy.
 - **Server state** lives in TanStack Query (`scene`, `versions`, `model:{versionId}`); Zustand holds only
@@ -85,3 +85,35 @@ Living record of decisions beyond `project-specification.md`. Update as phases l
 - **Timestamps**: `UTCDateTime` returns aware datetimes on every dialect (SQLite dropped tzinfo).
 - **Local runner**: `deployment/scripts/dev_local.py` runs the real API + a worker thread with real
   Blender over an in-process fakeredis — used for the browser verification of this phase.
+
+## Phase 4 — LLM integration and the conversational vertical slice
+
+- **Flow**: `POST /conversation/messages` stores the user message and creates an `agent` job on
+  `jobs:agent` (409 if any job is active for the project). The agent worker claims it
+  (`/internal/v1/jobs/{id}/start`, deduped), loads an `AgentContext` (head inventory, last 12 turns,
+  selected object), plans, and submits through `/agent-jobs/{id}/plan` → `ModelingService.submit_batch`:
+  the same validator, project lock, Blender job and version commit as UI edits. It relays the modeling
+  job's `blender.*` / `version.created` events onto the agent job's stream, so the browser follows a
+  single job; `/complete` then writes the assistant message linked to the new version.
+- **Planner** (`agent-worker/app/planner.py`): one structured call returning
+  `{intent, reply, summary, operations}` with intents `modeling | question | clarify | export`. The
+  prompt embeds a compact scene (ids, transforms, materials with use counts) and an operation
+  catalogue generated from the shared pydantic schemas (a test asserts every DSL operation is
+  documented). Output goes through JSON extraction/repair → `LLMResponse` → `validate_batch` against
+  the head inventory; parse or validation issues are fed back for at most `AGENT_MAX_RETRIES` repairs.
+  The validator stays the trust boundary: LLM output never reaches Blender unchecked.
+- **Providers**: `OpenAICompatibleProvider` (httpx; `response_format` json_schema / vLLM `guided_json`
+  / json_object / none; retries 5xx, 429 and timeouts, fails fast on other 4xx) and `FakeProvider`, a
+  deterministic offline planner for CI and demos. Every call is recorded in `agent_runs` (model,
+  duration, tokens, validation issues).
+- **Workers**: consumer group `agent-workers`; ACK only after `/complete`; un-ACKed jobs are reclaimed
+  with `XAUTOCLAIM` and `/start` dedupes. Cancelling the agent job is forwarded to its modeling job.
+  A busy project at submit time is retried briefly.
+- **Ordering**: message timestamps are strictly increasing per conversation (Windows clocks tick
+  every ~15 ms); a page reload during a turn resumes the agent job rather than its modeling job.
+- **Exports**: an `export` reply pins `export_version_id` (the head when asked), so "Download GLB"
+  serves the exported version even after later edits.
+- **Redis timeouts**: blocking reads use 2 s windows and treat a client `TimeoutError` as an empty read
+  (both workers and SSE); SSE sends a comment ping every 15 s.
+- **Local runner**: `dev_local.py` starts a fakeredis **TCP** server and runs the real `blender-worker`
+  and `agent-worker` processes against the real API, i.e. the same code paths as Docker.

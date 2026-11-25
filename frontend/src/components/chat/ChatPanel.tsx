@@ -1,54 +1,91 @@
-import { Check, Command, Cuboid, Loader2, PanelLeftClose, Plus, Send, Sparkles, WandSparkles } from 'lucide-react'
-import { useEffect, useRef } from 'react'
-import { interpretDemoCommand } from '../../features/modeling/demoCommands'
-import { useModelingAction } from '../../features/modeling/hooks'
+import { Check, Command, Cuboid, Download, GitCommitHorizontal, Loader2, MousePointer2, PanelLeftClose, Plus, Send, Sparkles, WandSparkles } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { glbUrl, useConversation, useSendMessage, useVersions } from '../../features/modeling/hooks'
 import { useWorkspaceScene } from '../../features/modeling/WorkspaceContext'
-import { addObject, deleteObject, editMaterial, editObject, giveObjectMaterial } from '../../services/scene'
+import { downloadAsset } from '../../services/scene'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
+import type { ConversationMessage } from '../../types/scene'
+import { clockTime } from '../../utils/format'
+
+const WELCOME =
+  'Your workspace is ready. Describe what you want to build — for example “create a modern wooden desk” — and I will plan it, build it in Blender and save it as a version.'
+
+const SUGGESTIONS: [string, string][] = [
+  ['Wooden desk', 'Create a modern wooden desk'],
+  ['Black metal legs', 'Make the legs black metal'],
+  ['Two drawers', 'Add two drawers'],
+  ['Walnut top', 'Change the top to walnut'],
+  ['Export GLB', 'Export it as GLB'],
+]
+
+function safeFilename(name: string) {
+  return name.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'model'
+}
+
+function ExportButton({ message, projectName }: { message: ConversationMessage; projectName: string }) {
+  const { projectId, version: head } = useWorkspaceScene()
+  const versions = useVersions(projectId)
+  const [busy, setBusy] = useState(false)
+  const notify = useWorkspaceStore((s) => s.notify)
+  const pinned = message.metadata.export_version_id
+  const version = (pinned && versions.data?.find((v) => v.id === pinned)) || (!pinned ? head : null)
+  const url = glbUrl(version)
+  if (!url || !version) return <div className="chat-chip muted">Nothing to export yet</div>
+
+  const download = async () => {
+    setBusy(true)
+    try {
+      await downloadAsset(url, `${safeFilename(projectName)}-v${version.version_number}.glb`)
+    } catch {
+      notify('Download failed — please try again')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button className="chat-action" onClick={() => void download()} disabled={busy}>
+      {busy ? <Loader2 size={13} className="spin" /> : <Download size={13} />} Download GLB · v{version.version_number}
+    </button>
+  )
+}
+
+function MessageView({ m, projectName }: { m: ConversationMessage; projectName: string }) {
+  const failed = m.role === 'assistant' && (m.status === 'failed' || m.status === 'cancelled')
+  return (
+    <div className={`message ${m.role}`}>
+      {m.role === 'assistant' && <div className="assistant-avatar"><Sparkles size={13} /></div>}
+      <div className="message-body">
+        <div className="message-meta">
+          {m.role === 'assistant' ? 'Forma Assistant' : 'You'} <span>{clockTime(new Date(m.created_at))}</span>
+        </div>
+        <div className={`bubble${failed ? ' failed' : ''}`}>{m.content}</div>
+        {m.metadata.version_number ? (
+          <div className="chat-chip"><GitCommitHorizontal size={12} /> Saved as v{m.metadata.version_number}</div>
+        ) : null}
+        {m.metadata.action === 'export' && <ExportButton message={m} projectName={projectName} />}
+      </div>
+    </div>
+  )
+}
 
 export function ChatPanel({ projectName }: { projectName: string }) {
-  const { projectId, inventory, materialMap } = useWorkspaceScene()
-  const messages = useWorkspaceStore((s) => s.messages)
+  const { projectId, inventory, selected } = useWorkspaceScene()
+  const conversation = useConversation(projectId)
   const prompt = useWorkspaceStore((s) => s.prompt)
   const activeJob = useWorkspaceStore((s) => s.activeJob)
-  const selectedId = useWorkspaceStore((s) => s.selectedId)
-  const { setPrompt, setShowChat, say } = useWorkspaceStore.getState()
-  const run = useModelingAction()
+  const { setPrompt, setShowChat } = useWorkspaceStore.getState()
+  const sendMessage = useSendMessage(projectId)
   const endRef = useRef<HTMLDivElement>(null)
+  const messages = conversation.data?.messages ?? []
+  const thinking = activeJob?.kind === 'agent'
 
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: 'end' })
   }, [messages.length, activeJob?.message])
 
-  const send = async () => {
-    const text = prompt.trim()
+  const send = async (text = prompt.trim()) => {
     if (!text || activeJob) return
-    say('user', text)
-    setPrompt('')
-    const { action, reply } = interpretDemoCommand(text, inventory.objects, materialMap, selectedId)
-    say('assistant', reply)
-    switch (action.type) {
-      case 'add':
-        await run(`Added ${action.kind}`, () => addObject(projectId, action.kind))
-        break
-      case 'remove':
-        await run('Deleted object', () => deleteObject(projectId, action.targetId, true))
-        break
-      case 'edit':
-        await run('Edited object', () => editObject(projectId, action.targetId, action.patch))
-        break
-      case 'material': {
-        const patch = { base_color: action.color, metallic: action.metallic, roughness: action.roughness }
-        await run('Material updated', () =>
-          action.materialId
-            ? editMaterial(projectId, action.materialId, patch)
-            : giveObjectMaterial(projectId, action.targetId, patch),
-        )
-        break
-      }
-      case 'none':
-        break
-    }
+    if (await sendMessage(text, selected?.object_id ?? null)) setPrompt('')
   }
 
   return (
@@ -57,7 +94,7 @@ export function ChatPanel({ projectName }: { projectName: string }) {
         <div className="heading-icon ai"><Sparkles size={16} /></div>
         <div>
           <strong>AI Assistant</strong>
-          <small><span className="online-dot"></span> {activeJob ? 'Building…' : 'Ready · rule-based preview'}</small>
+          <small><span className="online-dot"></span> {thinking ? 'Working…' : activeJob ? 'Building…' : 'Ready'}</small>
         </div>
         <button className="panel-collapse" onClick={() => setShowChat(false)} title="Hide AI assistant"><PanelLeftClose size={16} /></button>
       </div>
@@ -69,24 +106,33 @@ export function ChatPanel({ projectName }: { projectName: string }) {
           <span>{projectName}</span>
           <span className="context-count">{inventory.objects.length} objects</span>
         </div>
+        {selected && (
+          <div className="context-row selection" title="The assistant knows which object is selected">
+            <MousePointer2 size={13} />
+            <span>{selected.name}</span>
+            <span className="context-count">selected</span>
+          </div>
+        )}
       </div>
 
-      <div className="messages">
+      <div className="messages" aria-live="polite">
         <div className="date-divider"><span>Today</span></div>
-        {messages.map((m, i) => (
-          <div className={`message ${m.role}`} key={i}>
-            {m.role === 'assistant' && <div className="assistant-avatar"><Sparkles size={13} /></div>}
+        {conversation.isSuccess && messages.length === 0 && (
+          <div className="message assistant">
+            <div className="assistant-avatar"><Sparkles size={13} /></div>
             <div className="message-body">
-              <div className="message-meta">{m.role === 'assistant' ? 'Forma Assistant' : 'You'} <span>{m.time}</span></div>
-              <div className="bubble">{m.text}</div>
+              <div className="message-meta">Forma Assistant</div>
+              <div className="bubble">{WELCOME}</div>
             </div>
           </div>
-        ))}
+        )}
+        {conversation.isError && <div className="chat-chip muted">Could not load the conversation.</div>}
+        {messages.map((m) => <MessageView key={m.id} m={m} projectName={projectName} />)}
         <div className="agent-status" role="status">
           {activeJob ? (
             <>
               <span className="status-check busy"><Loader2 size={11} className="spin" /></span>
-              <span>{activeJob.label} · {activeJob.message}</span>
+              <span>{activeJob.message}</span>
             </>
           ) : (
             <>
@@ -101,9 +147,9 @@ export function ChatPanel({ projectName }: { projectName: string }) {
 
       <div className="suggestions">
         <span>TRY ASKING</span>
-        <button onClick={() => setPrompt('Add a sphere')}>Add a sphere</button>
-        <button onClick={() => setPrompt('Make the tabletop wider')}>Widen tabletop</button>
-        <button onClick={() => setPrompt('Make the legs black metal')}>Black metal legs</button>
+        {SUGGESTIONS.map(([label, text]) => (
+          <button key={label} onClick={() => setPrompt(text)}>{label}</button>
+        ))}
       </div>
 
       <div className="composer-wrap">
@@ -119,6 +165,7 @@ export function ChatPanel({ projectName }: { projectName: string }) {
             }}
             placeholder="Describe the 3D object you want to create or tell me what to change..."
             aria-label="Prompt"
+            maxLength={4000}
             rows={2}
           />
           <div className="composer-bottom">

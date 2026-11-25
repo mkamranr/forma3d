@@ -21,8 +21,7 @@ TOKEN = "internal-test-token"
 INTERNAL = {"X-Internal-Token": TOKEN}
 
 
-@pytest.fixture
-def settings(tmp_path: Path) -> Settings:
+def pipeline_settings(tmp_path: Path) -> Settings:
     return Settings(
         app_env="test",
         database_url="sqlite+aiosqlite://",
@@ -33,6 +32,11 @@ def settings(tmp_path: Path) -> Settings:
         internal_service_token=TOKEN,
         data_root=str(tmp_path),
     )
+
+
+@pytest.fixture
+def settings(tmp_path: Path) -> Settings:
+    return pipeline_settings(tmp_path)
 
 
 class FakeWorker:

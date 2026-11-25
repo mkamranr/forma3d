@@ -168,3 +168,38 @@
 .version-meta small { color:#9aa1ae; font-size:10px; }
 
 .status-check.busy { background:#fdf1d8; color:#7a5310; }
+
+/* Phase 4: conversation */
+.bubble { white-space:pre-wrap; overflow-wrap:anywhere; }
+.bubble.failed { background:#fdf0ef; color:#a2453c; }
+.chat-chip {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  margin-top:5px;
+  padding:3px 7px;
+  border-radius:20px;
+  background:#e8f7f0;
+  color:#2f9466;
+  font-size:9px;
+  font-weight:600;
+}
+.chat-chip.muted { background:#f2f3f6; color:#8a91a0; font-weight:500; }
+.chat-action {
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  margin-top:6px;
+  padding:6px 10px;
+  border:1px solid #dcd8fb;
+  border-radius:7px;
+  background:#f6f4ff;
+  color:#5a4fd0;
+  font-size:10px;
+  font-weight:600;
+  cursor:pointer;
+}
+.chat-action:hover { background:#eeeaff; }
+.chat-action:disabled { opacity:.6; cursor:wait; }
+.context-row.selection { margin-top:5px; color:#6f66c9; }
+.context-row.selection span:first-of-type { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

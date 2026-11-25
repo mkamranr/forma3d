@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import StreamingResponse
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_session, get_settings_dep
@@ -70,22 +71,30 @@ async def job_events(
     redis = request.app.state.redis
     key = event_stream_key(job_id)
     start = last_event_id if last_event_id and _valid_stream_id(last_event_id) else "0-0"
-    block_ms = 1000 if settings.app_env == "test" else PING_SECONDS * 1000
+    # Short blocking reads (well under any client socket timeout); a comment ping every PING_SECONDS.
+    block_ms = 1000 if settings.app_env == "test" else 2000
 
     async def stream() -> AsyncIterator[bytes]:
         cursor = start
-        elapsed = 0.0
+        elapsed = idle = 0.0
         yield b"retry: 3000\n\n"
         while elapsed < MAX_STREAM_SECONDS:
             if await request.is_disconnected():
                 return
-            entries = await redis.xread({key: cursor}, count=100, block=block_ms)
+            try:
+                entries = await redis.xread({key: cursor}, count=100, block=block_ms)
+            except RedisTimeoutError:
+                entries = []
             if not entries:
                 if initial_terminal:
                     return  # finished job and nothing (more) to replay
                 elapsed += block_ms / 1000
-                yield b": ping\n\n"
+                idle += block_ms / 1000
+                if idle >= PING_SECONDS:
+                    idle = 0.0
+                    yield b": ping\n\n"
                 continue
+            idle = 0.0
             for _stream, items in entries:
                 for entry_id, fields in items:
                     cursor = _s(entry_id)

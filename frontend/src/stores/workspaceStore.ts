@@ -1,10 +1,9 @@
 import { create } from 'zustand'
-import type { ChatMessage, JobEvent } from '../types/scene'
-import { clockTime } from '../utils/format'
+import type { JobEvent } from '../types/scene'
 
 /**
  * Workspace UI state only. Scene data (inventory, versions, GLB) is server state in TanStack Query
- * (features/modeling/hooks.ts); this store never holds a copy of the scene.
+ * (features/modeling/hooks.ts), and so is the conversation; this store never holds a copy of either.
  */
 
 export type InspectorTab = 'properties' | 'materials'
@@ -13,8 +12,12 @@ export type Shading = 'material' | 'solid' | 'wireframe'
 export type Projection = 'perspective' | 'orthographic'
 export type CameraPreset = 'iso' | 'front' | 'back' | 'left' | 'right' | 'top'
 
+/** `agent`: a chat turn (planning + Blender); `edit`: a direct UI edit (Blender only). */
+export type JobKind = 'agent' | 'edit'
+
 export type ActiveJob = {
   id: string
+  kind: JobKind
   label: string
   stage: string
   message: string
@@ -24,7 +27,6 @@ type ViewRequest = { kind: 'fit' | CameraPreset | 'zoom_in' | 'zoom_out'; nonce:
 
 type WorkspaceState = {
   selectedId: string | null
-  messages: ChatMessage[]
   prompt: string
   activeTab: InspectorTab
   activeTool: Tool
@@ -53,30 +55,15 @@ type WorkspaceState = {
   requestView: (kind: ViewRequest['kind']) => void
   setVersionsOpen: (open: boolean) => void
   notify: (message: string) => void
-  say: (role: ChatMessage['role'], text: string) => void
-  startJob: (id: string, label: string) => void
+  startJob: (id: string, label: string, kind?: JobKind) => void
   jobEvent: (event: JobEvent) => void
   endJob: (id: string) => void
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 
-const welcome = (): ChatMessage[] => [
-  {
-    role: 'assistant',
-    text: 'Your workspace is ready. Every change is built by Blender and saved as a new version.',
-    time: clockTime(),
-  },
-  {
-    role: 'assistant',
-    text: 'The conversational AI arrives with the LLM integration. For now I understand simple commands like “add a sphere”, “make the tabletop wider” or “make it blue”.',
-    time: clockTime(),
-  },
-]
-
 const freshState = () => ({
   selectedId: null as string | null,
-  messages: welcome(),
   prompt: '',
   activeTab: 'properties' as InspectorTab,
   activeTool: 'select' as Tool,
@@ -116,9 +103,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     toastTimer = setTimeout(() => set({ toast: '' }), 2600)
   },
 
-  say: (role, text) => set((s) => ({ messages: [...s.messages, { role, text, time: clockTime() }] })),
-
-  startJob: (id, label) => set({ activeJob: { id, label, stage: 'queued', message: 'Waiting for Blender…' } }),
+  startJob: (id, label, kind = 'edit') =>
+    set({
+      activeJob: { id, kind, label, stage: 'queued', message: kind === 'agent' ? 'Reading your request…' : 'Waiting for Blender…' },
+    }),
 
   jobEvent: (event) => {
     const job = get().activeJob
