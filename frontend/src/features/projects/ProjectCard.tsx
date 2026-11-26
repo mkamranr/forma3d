@@ -22,8 +22,13 @@ export function ProjectCard({ project, onRename, onDuplicate, onToggleArchive, o
     const onDown = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
     }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false)
     document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [menuOpen])
 
   const act = (fn: (p: Project) => void) => () => {
@@ -38,9 +43,14 @@ export function ProjectCard({ project, onRename, onDuplicate, onToggleArchive, o
   )
 
   return (
-    <article className="group relative overflow-hidden rounded-xl border border-line bg-white transition-shadow hover:shadow-[0_8px_24px_#20263314]">
+    // No overflow-hidden on the card: it would clip the actions menu. Only the thumbnail is rounded/clipped.
+    <article
+      className={`group relative rounded-xl border border-line bg-white transition-shadow hover:shadow-[0_8px_24px_#20263314] ${
+        menuOpen ? 'z-30' : ''
+      }`}
+    >
       <Link to={`/projects/${project.id}`} className="block text-inherit no-underline" aria-label={`Open ${project.name}`}>
-        <div className="relative grid aspect-[16/10] place-items-center bg-[radial-gradient(circle_at_50%_35%,#2c3442,#202630_70%)]">
+        <div className="relative grid aspect-[16/10] place-items-center overflow-hidden rounded-t-[11px] bg-[radial-gradient(circle_at_50%_35%,#2c3442,#202630_70%)]">
           {thumb ? (
             <img src={thumb} alt="" className="h-full w-full object-cover" />
           ) : (
