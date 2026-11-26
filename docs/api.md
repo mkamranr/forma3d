@@ -34,6 +34,8 @@
 | POST/GET | `/api/v1/projects/{id}/references` · `/references/{ref_id}` | image-to-3D: multipart PNG/JPEG upload (≤10 MB, ≤4096 px, header-checked) of a photo to attach to a message; the user message's metadata then carries `attachments` and, once read, `reference_description` |
 | GET | `/api/v1/config` | public, no login: `{registration_open, default_render_quality, default_render_size, default_export_format, default_export_unit}` |
 
+| GET | `/api/v1/projects/{id}/agent-jobs/{job_id}/trace` | agent trace of one turn (owner only; `job_id` = message `metadata.agent_job_id`): `{job, message, graph:{nodes, edges}, steps:[{id, node, seq, status, duration_ms, input, output, error, calls:[{kind: llm\|agent, agent, model, status, duration_ms, input, output, error, debug?}]}], totals, include_debug}`. `debug` (prompt + raw response) only for admins. Poll while `job.status` is running or a step is `running` |
+
 ### Administration (admins only: 401 without login, 403 `admin_only` otherwise)
 
 | Method | Path | Notes |
@@ -42,6 +44,8 @@
 | PUT | `/api/v1/admin/config` | `{values: {key: value}}`; `null` resets to `.env`/default, `""` clears a secret; 422 `invalid_setting` |
 | POST | `/api/v1/admin/config/test-llm` | `{values}` (unsaved AI settings to try) → `{ok, provider, model, models, checks:[{name, label, ok, detail, ms}]}`; runs on an agent worker; 503 `no_agent_worker` / `llm_test_timeout` |
 | GET | `/api/v1/admin/users` | `?q=&limit=&offset=` → `{items:[{id, email, display_name, is_active, is_admin, created_at, projects}], total}` |
+| GET | `/api/v1/admin/agent-jobs` | `?q=&status=&limit=&offset=` → recent turns of all users `{items:[{job_id, project_name, user_email, message, status, duration_ms, steps, llm_calls, tokens, revisions}], total}` |
+| GET | `/api/v1/admin/agent-jobs/{job_id}/trace` | any user's trace, prompts included |
 | PATCH | `/api/v1/admin/users/{id}` | `{is_active?, is_admin?}`; deactivation signs the user out; 409 `self_change` / `last_admin` |
 
 `POST /auth/register` returns 403 `registration_closed` when sign-ups are closed (the first account is always allowed).
@@ -54,7 +58,7 @@ All scene edits compile to DSL and return 202 + `job_id`, exactly like `modeling
 |---|---|---|
 | POST | `/internal/v1/jobs/{id}/start` · `complete` | worker callbacks, `X-Internal-Token`, internal network only |
 | GET/POST | `/internal/v1/agent-jobs/{id}/references/{ref_id}` · `reference-description` | Vision agent: bytes of a photo attached to this job only; store its description on the message |
-| GET/POST | `/internal/v1/agent-jobs/{id}/context` · `plan` · `runs` · `restore` · `complete` | agent worker: context, validated plan (per attempt, `defer_commit`), agent run records, undo/restore, reply |
+| GET/POST | `/internal/v1/agent-jobs/{id}/context` · `plan` · `runs` · `restore` · `complete` | agent worker: context, validated plan (per attempt, `defer_commit`), trace rows (`runs`: kind node/llm/agent; a node row is sent when it starts and again with the same `id` when it ends), undo/restore, reply |
 | GET | `/internal/v1/config` | `{version, values}`: Configuration overrides (incl. secrets) for workers; fetched when Redis `config:version` changes |
 | GET/POST | `/internal/v1/jobs/{id}/staged` · `commit` · `discard` | agent worker: inspect a staged Blender result, then commit it as a version or discard it |
 

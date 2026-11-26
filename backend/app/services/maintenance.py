@@ -23,13 +23,13 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from redis.asyncio import Redis
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
 from app.core.logging import get_logger
 from app.core.time import utcnow
-from app.models import Asset, Job, Project
+from app.models import AgentRun, Asset, Job, Project
 from app.services.job_service import JobService
 from app.services.locks import ProjectLock
 from app.services.storage import ProjectStorage
@@ -212,6 +212,22 @@ class Maintenance:
             log.info("maintenance.outputs_purged", count=len(old))
         return len(old)
 
+    async def purge_trace_prompts(self, now: datetime | None = None) -> int:
+        """Drop the stored LLM prompts/responses of old agent traces (summaries stay)."""
+        days = self.settings.agent_trace_prompt_retention_days
+        if days <= 0:
+            return 0
+        cutoff = (now or utcnow()) - timedelta(days=days)
+        async with self.sessionmaker() as session:
+            res = await session.execute(
+                update(AgentRun)
+                .where(AgentRun.debug.is_not(None), AgentRun.created_at < cutoff)
+                .values(debug=None)
+                .execution_options(synchronize_session=False)
+            )
+            await session.commit()
+        return int(res.rowcount or 0)
+
     # ------------------------------------------------------------------ loop
     async def run_once(self, now: datetime | None = None) -> dict[str, Any]:
         if self.runtime is not None:
@@ -221,6 +237,7 @@ class Maintenance:
         stats["locks_released"] = await self.release_stale_locks()
         stats["projects_purged"] = await self.purge_deleted_projects(now)
         stats["outputs_purged"] = await self.purge_old_outputs(now)
+        stats["trace_prompts_purged"] = await self.purge_trace_prompts(now)
         if any(stats.values()):
             log.info("maintenance.swept", **stats)
         return stats

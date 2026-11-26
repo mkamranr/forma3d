@@ -1,5 +1,6 @@
 import { ArrowLeft, CheckCircle2, Cuboid, Loader2, PlugZap, RotateCcw, Search, ShieldCheck, XCircle } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { AgentActivityPanel } from '../trace/AgentActivityPanel'
 import { Link } from 'react-router-dom'
 import { UserMenu } from '../../components/layout/UserMenu'
 import { Button } from '../../components/ui/Button'
@@ -288,6 +289,7 @@ export function ConfigurationPage() {
   const [draft, setDraft] = useState<Draft>({})
   const [saved, setSaved] = useState(false)
   const groups = config.data?.groups ?? []
+  const activity = tab === 'activity'
   const group = groups.find((g) => g.id === tab) ?? groups[0]
   const changes = Object.keys(draft).length
   const perTab = useMemo(() => {
@@ -347,26 +349,42 @@ export function ConfigurationPage() {
                 <button
                   key={g.id}
                   role="tab"
-                  aria-selected={g.id === group.id}
+                  aria-selected={!activity && g.id === group.id}
                   onClick={() => setTab(g.id)}
                   className={`-mb-px cursor-pointer border-0 border-b-2 bg-transparent px-3 py-2 text-[13px] font-semibold ${
-                    g.id === group.id ? 'border-brand-500 text-brand-700' : 'border-transparent text-ink-400 hover:text-ink-900'
+                    !activity && g.id === group.id ? 'border-brand-500 text-brand-700' : 'border-transparent text-ink-400 hover:text-ink-900'
                   }`}
                 >
                   {g.label}
                   {perTab[g.id] > 0 && <span className="ml-1.5 rounded-full bg-[#fff4e0] px-1.5 text-[10px] text-[#9a6200]">{perTab[g.id]}</span>}
                 </button>
               ))}
+              <button
+                role="tab"
+                aria-selected={activity}
+                onClick={() => setTab('activity')}
+                className={`-mb-px cursor-pointer border-0 border-b-2 bg-transparent px-3 py-2 text-[13px] font-semibold ${
+                  activity ? 'border-brand-500 text-brand-700' : 'border-transparent text-ink-400 hover:text-ink-900'
+                }`}
+              >
+                Agent activity
+              </button>
             </nav>
 
-            {group.help && <p className="mb-4 text-[12px] text-ink-500">{group.help}</p>}
-            {group.id === 'ai' && <LlmTestPanel draft={draft} group={group} />}
+            {activity ? (
+              <AgentActivityPanel />
+            ) : (
+              <>
+                {group.help && <p className="mb-4 text-[12px] text-ink-500">{group.help}</p>}
+                {group.id === 'ai' && <LlmTestPanel draft={draft} group={group} />}
 
-            <section role="tabpanel" aria-label={group.label} className="rounded-xl border border-line bg-white px-4">
-              {group.fields.map((f) => <FieldRow key={f.key} field={f} draft={draft} setDraft={setDraft} />)}
-            </section>
+                <section role="tabpanel" aria-label={group.label} className="rounded-xl border border-line bg-white px-4">
+                  {group.fields.map((f) => <FieldRow key={f.key} field={f} draft={draft} setDraft={setDraft} />)}
+                </section>
 
-            {group.id === 'accounts' && <UsersPanel />}
+                {group.id === 'accounts' && <UsersPanel />}
+              </>
+            )}
           </>
         )}
       </main>

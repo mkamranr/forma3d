@@ -1,5 +1,5 @@
-import { Check, Command, Cuboid, Download, Eye, GitCommitHorizontal, History, ImagePlus, Loader2, MousePointer2, PanelLeftClose, Plus, Send, ShieldAlert, ShieldCheck, Sparkles, WandSparkles, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Check, Command, Cuboid, Download, Eye, GitCommitHorizontal, History, ImagePlus, Loader2, MousePointer2, PanelLeftClose, Plus, Send, ShieldAlert, ShieldCheck, Sparkles, WandSparkles, Workflow, X } from 'lucide-react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useAssetObjectUrl } from '../../hooks/useAssetObjectUrl'
 import { referenceUrl, uploadReference } from '../../services/conversation'
 
@@ -22,6 +22,28 @@ const SUGGESTIONS: [string, string][] = [
   ['Walnut top', 'Change the top to walnut'],
   ['Export GLB', 'Export it as GLB'],
 ]
+
+// React Flow is only loaded when a trace is opened.
+const AgentTraceDialog = lazy(() => import('../../features/trace/AgentTraceDialog'))
+
+/** "How this was made" for one agent turn (opens the graph + timeline dialog). */
+function TraceButton({ jobId, label = 'How this was made', className = 'chat-chip trace' }: { jobId: string; label?: string; className?: string }) {
+  const { projectId } = useWorkspaceScene()
+  const [open, setOpen] = useState(false)
+  const close = useCallback(() => setOpen(false), [])
+  return (
+    <>
+      <button className={className} onClick={() => setOpen(true)} title="See which agents worked on this and what each one did">
+        <Workflow size={12} /> {label}
+      </button>
+      {open && (
+        <Suspense fallback={null}>
+          <AgentTraceDialog open onClose={close} projectId={projectId} jobId={jobId} />
+        </Suspense>
+      )}
+    </>
+  )
+}
 
 function safeFilename(name: string) {
   return name.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'model'
@@ -121,6 +143,7 @@ function MessageView({ m, projectName, highlighted }: { m: ConversationMessage; 
           </button>
         ) : null}
         {m.metadata.quality && <QualityChip quality={m.metadata.quality} />}
+        {m.role === 'assistant' && m.metadata.agent_job_id && <TraceButton jobId={m.metadata.agent_job_id} />}
         {m.metadata.action && m.metadata.output_job_id ? (
           <OutputChip kind={m.metadata.action} id={m.metadata.output_job_id} projectName={projectName} />
         ) : m.metadata.output_error ? (
@@ -263,6 +286,9 @@ export function ChatPanel({ projectName }: { projectName: string }) {
             <>
               <span className="status-check busy"><Loader2 size={11} className="spin" /></span>
               <span>{activeJob.message}</span>
+              {activeJob.kind === 'agent' && (
+                <TraceButton jobId={activeJob.id} label="Watch the agents" className="status-trace" />
+              )}
             </>
           ) : (
             <>

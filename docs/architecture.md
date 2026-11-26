@@ -284,3 +284,24 @@ Living record of decisions beyond `project-specification.md`. Update as phases l
 - **Other workspace controls**: the project bar "…" menu (rename/describe, duplicate, export, download .blend,
   archive, delete), Help (guide and shortcuts), Settings (viewport preferences in `localStorage`) and the
   "Studio workspace" project switcher.
+
+## Agent trace ("How this was made")
+
+- **Recording.** `agent-worker/app/graph/trace.py` wraps every LangGraph node. When a node starts, it posts a
+  `kind=node` row with status `running` and a per-turn `seq` (a Redis counter, so a resumed turn keeps its order).
+  When the node ends, it posts the same `id` again with the final status (`succeeded`, `failed`, `skipped`,
+  `waiting`, `cancelled`), the duration and a short summary of its state update: intent, planned parts,
+  operation counts, QA result, saved version. LLM calls (`kind=llm`) and deterministic agents (`kind=agent`)
+  recorded while a node runs carry its `node` and `seq`. LLM rows also hold `debug`, the prompt messages and
+  the raw answer, each cut to 24k characters. Tracing is best-effort and never fails a turn.
+- **Storage.** All rows go in `agent_runs` (migration 0004 adds `kind`, `node`, `seq` and `debug`).
+  `POST /internal/v1/agent-jobs/{id}/runs` upserts by `id`. `debug` is dropped on ingest when
+  `AGENT_TRACE_PROMPTS=false`, and set to NULL by the maintenance loop after
+  `AGENT_TRACE_PROMPT_RETENTION_DAYS`.
+- **Graph.** On startup the worker publishes the compiled graph's nodes and edges
+  (`compiled.get_graph()`, with conditional edges flagged) to Redis `agent:graph`, so the diagram always
+  matches the deployed workflow.
+- **API and UI.** The owner reads `/projects/{id}/agent-jobs/{job}/trace`, and admins can use
+  `/admin/agent-jobs[/{job}/trace]`. `debug` is only included for admins. Steps still `running` after the job
+  ended are reported as `interrupted`. The frontend dialog (React Flow, loaded lazily) draws the published
+  graph with the path taken highlighted, plus a timeline. It polls every 1.5 s while the turn runs.

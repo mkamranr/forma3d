@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     deleted_project_retention_days: int = Field(default=30, ge=0, le=3650)
     #: render/export files are removed after this many days (versions are never purged); 0 disables
     output_retention_days: int = Field(default=30, ge=0, le=3650)
+    #: Agent trace ("How this was made"): store the full LLM prompts/responses (admins only) and for how long.
+    agent_trace_prompts: bool = True
+    agent_trace_prompt_retention_days: int = Field(default=14, ge=0, le=3650)
     #: optional bearer token for GET /metrics (the endpoint is never proxied publicly)
     metrics_token: str = ""
 

@@ -28,9 +28,28 @@ class CallRecord:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     issues: list[str] = field(default_factory=list)
+    #: The prompt sent and the raw answer (truncated), for the admin view of the agent trace.
+    debug: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {k: v for k, v in self.__dict__.items()}
+        return {k: v for k, v in self.__dict__.items() if k != "debug"}
+
+
+#: Per message / response size kept for the trace (the system prompt alone can be ~30k characters).
+DEBUG_MESSAGE_CHARS = 24_000
+DEBUG_RESPONSE_CHARS = 24_000
+
+
+def debug_payload(messages: list[ChatMessage], response: str | None) -> dict[str, Any]:
+    def clip(text: str, n: int) -> str:
+        return text if len(text) <= n else text[:n] + f" ... [{len(text) - n} more characters]"
+
+    return {
+        "messages": [
+            {"role": m.role, "content": clip(m.content, DEBUG_MESSAGE_CHARS), "images": len(m.images)} for m in messages
+        ],
+        "response": None if response is None else clip(response, DEBUG_RESPONSE_CHARS),
+    }
 
 
 class AgentFailed(Exception):
@@ -69,7 +88,15 @@ def structured_call(
             completion = provider.generate_structured(messages, schema, max_tokens=max_tokens)
         except LLMError as exc:
             calls.append(
-                CallRecord(agent, attempt, provider.model, int((time.monotonic() - t0) * 1000), False, str(exc)[:500])
+                CallRecord(
+                    agent,
+                    attempt,
+                    provider.model,
+                    int((time.monotonic() - t0) * 1000),
+                    False,
+                    str(exc)[:500],
+                    debug=debug_payload(messages, None),
+                )
             )
             if not exc.retryable or attempt > max_retries:
                 raise AgentFailed(f"The language model is unavailable: {exc}", "llm_unavailable", calls) from exc
@@ -82,6 +109,7 @@ def structured_call(
             True,
             prompt_tokens=completion.prompt_tokens,
             completion_tokens=completion.completion_tokens,
+            debug=debug_payload(messages, completion.text),
         )
         calls.append(rec)
         try:

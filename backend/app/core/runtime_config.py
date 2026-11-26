@@ -356,6 +356,25 @@ FIELDS: tuple[FieldDef, ...] = (
         min=0,
         max=3650,
     ),
+    FieldDef(
+        "agent_trace_prompts",
+        "limits",
+        "Keep full LLM prompts in agent traces",
+        "Stores the exact prompt and raw answer of every LLM call so administrators can inspect them under "
+        '"How this was made". Users always see step summaries only.',
+        "bool",
+        "settings",
+    ),
+    FieldDef(
+        "agent_trace_prompt_retention_days",
+        "limits",
+        "Keep LLM prompts (days)",
+        "After this, prompts are removed from traces; the step summaries stay. 0 keeps them forever.",
+        "int",
+        "settings",
+        min=0,
+        max=3650,
+    ),
     # ------------------------------------------------------------------ accounts
     FieldDef(
         "registration_open",

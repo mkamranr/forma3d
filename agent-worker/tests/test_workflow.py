@@ -49,7 +49,7 @@ def events(r, jid):  # noqa: ANN001
 
 
 def agents_run(backend, jid):  # noqa: ANN001
-    return [rec.agent_name for j, rec in backend.runs if j == jid]
+    return [rec.agent_name for j, rec in backend.runs if j == jid and rec.kind != "node"]
 
 
 @pytest.fixture

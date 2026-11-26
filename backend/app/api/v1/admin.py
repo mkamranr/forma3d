@@ -19,6 +19,7 @@ from app.core.errors import AppError, ConflictError, NotFoundError, ServiceUnava
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.models import Project, RefreshToken, User
+from app.services.trace_service import TraceService
 from forma3d_shared.runtime_config import LLM_TEST_QUEUE, LLM_TEST_RESULT
 
 log = get_logger(__name__)
@@ -216,6 +217,27 @@ async def update_user(
         created_at=user.created_at,
         projects=int(projects),
     )
+
+
+# --------------------------------------------------------------------------- agent activity
+@admin.get("/agent-jobs")
+async def list_agent_jobs(
+    request: Request,
+    q: str = Query(default="", max_length=200),
+    status: str = Query(default="", pattern="^(|queued|running|succeeded|failed|cancelled)$"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Recent assistant turns of all users, newest first."""
+    return await TraceService(session, request.app.state.redis).recent(q=q, status=status, limit=limit, offset=offset)
+
+
+@admin.get("/agent-jobs/{job_id}/trace")
+async def admin_trace(
+    job_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session)
+) -> dict[str, Any]:
+    return await TraceService(session, request.app.state.redis).trace(job_id, include_debug=True)
 
 
 router.include_router(admin)

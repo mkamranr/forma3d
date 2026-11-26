@@ -11,6 +11,8 @@ from forma3d_shared.schemas.scene_object import SceneInventory
 
 AGENT_JOB_STREAM = "jobs:agent"
 AGENT_JOB_GROUP = "agent-workers"
+#: Redis key holding the compiled LangGraph's nodes/edges (published by agent workers, drawn by the UI).
+AGENT_GRAPH_KEY = "agent:graph"
 
 #: Turn intents. Version management (undo / redo / restore) is handled without Blender.
 Intent = Literal["modeling", "question", "clarify", "export", "render", "undo", "redo", "restore"]
@@ -130,16 +132,33 @@ class SubmitPlanResponse(BaseModel):
     operation_batch_id: uuid.UUID
 
 
+#: Trace status of a graph step / agent call. `running` rows are updated in place (same `id`) when they end.
+RunStatus = Literal["running", "succeeded", "failed", "skipped", "waiting", "cancelled"]
+
+
 class AgentRunRecord(BaseModel):
+    """One row of a turn's agent trace.
+
+    kind `node`  - a LangGraph node (recorded when it starts, updated when it ends; `seq` orders the path)
+    kind `llm`   - one LLM call made inside `node`
+    kind `agent` - a deterministic agent's result (inspection, modeling, quality)
+    """
+
     model_config = ConfigDict(extra="forbid")
 
+    id: Optional[uuid.UUID] = None
+    kind: Literal["node", "llm", "agent"] = "agent"
+    node: Optional[str] = Field(default=None, max_length=64)
+    seq: Optional[int] = Field(default=None, ge=0)
     agent_name: str = Field(max_length=64)
     model_name: Optional[str] = Field(default=None, max_length=128)
-    status: Literal["succeeded", "failed"]
+    status: RunStatus
     duration_ms: int = 0
     input_metadata: dict[str, Any] = Field(default_factory=dict)
     output_metadata: dict[str, Any] = Field(default_factory=dict)
     error_message: Optional[str] = Field(default=None, max_length=2000)
+    #: Full LLM prompt and raw response (truncated). Shown to administrators only.
+    debug: Optional[dict[str, Any]] = None
 
 
 class AgentCompleteRequest(BaseModel):

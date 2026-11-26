@@ -92,6 +92,15 @@ def main() -> None:
             cols = {r[1] for r in (await conn.execute(text("PRAGMA table_info(users)"))).all()}
             if "is_admin" not in cols:
                 await conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0"))
+            runs = {r[1] for r in (await conn.execute(text("PRAGMA table_info(agent_runs)"))).all()}
+            for col, ddl in (
+                ("kind", "VARCHAR(16) NOT NULL DEFAULT 'agent'"),
+                ("node", "VARCHAR(64)"),
+                ("seq", "INTEGER"),
+                ("debug", "JSON"),
+            ):
+                if col not in runs:
+                    await conn.execute(text(f"ALTER TABLE agent_runs ADD COLUMN {col} {ddl}"))
 
     asyncio.run(init_db())
     db = Database(db_url)  # fresh engine for uvicorn's event loop

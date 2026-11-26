@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -16,6 +17,7 @@ from forma3d_shared.schemas.events import cancel_flag_key
 from langgraph.types import Command
 
 from .backend_client import BackendClient, BackendUnavailable
+from .graph.trace import GRAPH_KEY, graph_spec
 from .graph.workflow import Cancelled, Workflow, log
 
 
@@ -35,6 +37,10 @@ class AgentRunner:
         self.backend = backend
         self.workflow = workflow
         self.graph = workflow.build(checkpointer)
+        try:  # the structure the "How this was made" diagram draws
+            r.set(GRAPH_KEY, json.dumps(graph_spec(self.graph)))
+        except Exception as exc:
+            log("agent.graph_publish_failed", error=type(exc).__name__)
         if step_timeout:
             self.graph.step_timeout = step_timeout  # node-level timeout (LLM calls, Blender wait)
         self.worker_id = worker_id

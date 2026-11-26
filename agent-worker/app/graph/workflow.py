@@ -56,6 +56,7 @@ from ..agents.quality import Issue, QAReport, blender_failure_report, run_qa
 from ..backend_client import BackendClient, BackendRejected
 from ..providers.base import LLMProvider
 from .state import TurnState, fresh_turn
+from .trace import Tracer, current_step
 
 RELAYED = {"blender.started", "blender.progress", "blender.completed"}
 STOP_EVENTS = TERMINAL_EVENTS | {"job.staged"}
@@ -98,6 +99,8 @@ def _fail_outcome(reply: str, code: str, **extra: Any) -> dict[str, Any]:
 class Workflow:
     def __init__(self, deps: Deps) -> None:
         self.d = deps
+        # `record_run` is looked up per call so a backend swapped in later (tests) is used.
+        self.tracer = Tracer(lambda job, rec: self.d.backend.record_run(job, rec), self.d.redis, log)
 
     # ------------------------------------------------------------------ helpers
     def emit(self, job_id: uuid.UUID, type_: str, stage: str, message: str, data: dict | None = None) -> None:
@@ -124,11 +127,18 @@ class Workflow:
         inp: dict | None = None,
         out: dict | None = None,
         error: str | None = None,
+        kind: str = "agent",
+        debug: dict | None = None,
     ) -> None:
+        step = current_step.get()
         try:
             self.d.backend.record_run(
                 job_id,
                 AgentRunRecord(
+                    kind=kind,  # type: ignore[arg-type]
+                    node=step[0] if step else None,
+                    seq=step[1] if step else None,
+                    debug=debug,
                     agent_name=agent,
                     model_name=(model or "")[:128] or None,
                     status="succeeded" if ok else "failed",
@@ -152,6 +162,8 @@ class Workflow:
                 inp={"attempt": c.attempt, "prompt_tokens": c.prompt_tokens},
                 out={"completion_tokens": c.completion_tokens, "issues": c.issues[:10]},
                 error=c.error,
+                kind="llm",
+                debug=c.debug,
             )
 
     @staticmethod
@@ -666,7 +678,7 @@ class Workflow:
             "fail",
             "respond",
         ):
-            g.add_node(name, getattr(self, name))
+            g.add_node(name, self.tracer.wrap(name, getattr(self, name)))
         g.add_edge(START, "load_context")
         g.add_edge("load_context", "inspect_scene")
         g.add_edge("inspect_scene", "vision")

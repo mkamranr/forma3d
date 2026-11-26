@@ -406,21 +406,30 @@ class ConversationService:
         return target
 
     async def record_run(self, job_id: uuid.UUID, body: AgentRunRecord) -> None:
+        """Insert a trace row, or update it when the worker sends the same `id` again (a step that ended)."""
         job = await self._agent_job(job_id)
-        self.session.add(
-            AgentRun(
+        run = await self.session.get(AgentRun, body.id) if body.id else None
+        if run is not None and run.job_id != job.id:
+            return  # an id from another job: ignore
+        if run is None:
+            run = AgentRun(
+                id=body.id or uuid.uuid4(),
                 project_id=job.project_id,
                 conversation_id=uuid.UUID(job.payload["conversation_id"]),
                 job_id=job.id,
-                agent_name=body.agent_name,
-                model_name=body.model_name,
-                input_metadata=body.input_metadata,
-                output_metadata=body.output_metadata,
-                status=body.status,
-                duration_ms=body.duration_ms,
-                error_message=body.error_message,
             )
-        )
+            self.session.add(run)
+        run.kind = body.kind
+        run.node = body.node
+        run.seq = body.seq
+        run.agent_name = body.agent_name
+        run.model_name = body.model_name
+        run.input_metadata = body.input_metadata
+        run.output_metadata = body.output_metadata
+        run.status = body.status
+        run.duration_ms = body.duration_ms
+        run.error_message = body.error_message
+        run.debug = body.debug if self.settings.agent_trace_prompts else None
         await self.session.commit()
 
     async def complete(self, job_id: uuid.UUID, body: AgentCompleteRequest) -> Message | None:
