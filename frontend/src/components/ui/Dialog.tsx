@@ -37,8 +37,8 @@ export function Dialog({ open, title, description, onClose, children, size = 'md
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
-            <h2 id="dialog-title" className="font-display text-[15px] font-bold text-ink-900">{title}</h2>
-            {description && <p className="mt-1 text-[12px] text-ink-400">{description}</p>}
+            <h2 id="dialog-title" className="font-display text-[1.0312rem] font-bold text-ink-900">{title}</h2>
+            {description && <p className="mt-1 text-[0.8438rem] text-ink-400">{description}</p>}
           </div>
           <button className="cursor-pointer rounded-md border-0 bg-transparent p-1 text-ink-400 hover:bg-surface-2" onClick={onClose} aria-label="Close">
             <X size={16} />

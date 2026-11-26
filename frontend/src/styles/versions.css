@@ -26,7 +26,7 @@
 }
 
 .history-item {
-  font-size:9px;
+  font-size:0.6875rem;
   color:#717a8a;
   white-space:nowrap;
   display:flex;
@@ -46,6 +46,6 @@
   display:flex;
   align-items:center;
   gap:3px;
-  font-size:9px;
+  font-size:0.6875rem;
   white-space:nowrap;
 }

@@ -162,7 +162,7 @@ function CallView({ call, admin }: { call: TraceCall; admin: boolean }) {
             </div>
           </details>
         ) : (
-          <p className="trace-muted text-[11px]">Prompt not stored (disabled or past retention).</p>
+          <p className="trace-muted text-[0.8125rem]">Prompt not stored (disabled or past retention).</p>
         )
       )}
     </div>
@@ -241,8 +241,8 @@ export default function AgentTraceDialog({
   return (
     <Dialog open={open} onClose={onClose} title="How this was made" size="xl"
       description={data?.message ? `“${data.message.content}”` : 'The agents that worked on this request, step by step'}>
-      {trace.isLoading && <p className="text-[13px] text-ink-400">Loading the agent trace…</p>}
-      {trace.isError && <p className="text-[13px] text-danger-600" role="alert">{errorMessage(trace.error)}</p>}
+      {trace.isLoading && <p className="text-[0.9062rem] text-ink-400">Loading the agent trace…</p>}
+      {trace.isError && <p className="text-[0.9062rem] text-danger-600" role="alert">{errorMessage(trace.error)}</p>}
       {data && (
         <>
           <div className="trace-summary">
@@ -262,7 +262,7 @@ export default function AgentTraceDialog({
           </div>
 
           {steps.length === 0 && data.calls.length === 0 && (
-            <p className="py-6 text-center text-[13px] text-ink-400">
+            <p className="py-6 text-center text-[0.9062rem] text-ink-400">
               {live ? 'Waiting for an agent worker to pick up the request…' : 'No agent trace was recorded for this request.'}
             </p>
           )}

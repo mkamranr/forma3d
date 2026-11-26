@@ -7,23 +7,23 @@ import { LLM_NODES, nodeLabel } from './labels'
 /** Hand-tuned positions for the modeling graph (top -> bottom); unknown nodes go in an extra column. */
 const POS: Record<string, [number, number]> = {
   __start__: [0, 0],
-  load_context: [0, 70],
-  inspect_scene: [0, 140],
-  vision: [0, 210],
-  conversation: [0, 280],
-  answer: [-220, 380],
-  version_manager: [-220, 470],
-  planning: [0, 350],
-  ask: [220, 350],
-  wait_answer: [220, 420],
-  modeling: [0, 420],
-  execute: [0, 490],
-  quality: [0, 560],
-  revise: [220, 525],
-  commit: [0, 630],
-  fail: [220, 630],
-  respond: [0, 700],
-  __end__: [0, 770],
+  load_context: [0, 58],
+  inspect_scene: [0, 116],
+  vision: [0, 174],
+  conversation: [0, 232],
+  answer: [-215, 320],
+  version_manager: [-215, 400],
+  planning: [0, 290],
+  ask: [215, 290],
+  wait_answer: [215, 348],
+  modeling: [0, 348],
+  execute: [0, 406],
+  quality: [0, 464],
+  revise: [215, 435],
+  commit: [0, 522],
+  fail: [215, 522],
+  respond: [0, 580],
+  __end__: [0, 638],
 }
 
 const COLORS: Record<StepStatus, { bg: string; border: string; text: string }> = {
@@ -83,8 +83,9 @@ export function AgentGraphView({
       const terminal = id === '__start__' || id === '__end__'
       const reached = terminal ? path.includes(id) : runs.length > 0
       const c = latest ? COLORS[latest.status] : null
-      const pos = POS[id] ?? [460, 70 * extra++]
-      const label = terminal ? (id === '__start__' ? 'Start' : 'End') : nodeLabel(id)
+      const pos = POS[id] ?? [370, 58 * extra++]
+      // The AI badge already marks agents, so the diagram drops the "agent" suffix to stay compact.
+      const label = terminal ? (id === '__start__' ? 'Start' : 'End') : nodeLabel(id).replace(/ agent$/, '')
       return {
         id,
         position: { x: pos[0], y: pos[1] },
@@ -123,7 +124,7 @@ export function AgentGraphView({
         type: back ? 'smoothstep' : 'default',
         animated: count > 0 && live && e.target === last?.node,
         label: count > 1 ? `×${count}` : undefined,
-        labelStyle: { fontSize: 10, fontWeight: 700, fill: '#4f46bd' },
+        labelStyle: { fontSize: 12, fontWeight: 700, fill: '#4f46bd' },
         labelBgStyle: { fill: '#eef0ff' },
         style: count
           ? { stroke: '#6658dc', strokeWidth: 2.2 }
@@ -141,7 +142,7 @@ export function AgentGraphView({
         nodes={nodes}
         edges={edges}
         fitView
-        fitViewOptions={{ padding: 0.12 }}
+        fitViewOptions={{ padding: 0.06 }}
         minZoom={0.3}
         maxZoom={1.6}
         nodesDraggable={false}

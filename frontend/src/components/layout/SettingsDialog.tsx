@@ -1,4 +1,5 @@
 import { resetViewportPrefs, useWorkspaceStore, type Projection, type Shading } from '../../stores/workspaceStore'
+import { setTextSize, useTextSize, type TextSize } from '../../utils/textSize'
 import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
 
@@ -31,9 +32,17 @@ function Choice<T extends string>({ label, value, options, onChange }: { label: 
 
 export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const s = useWorkspaceStore()
+  const textSize = useTextSize()
   return (
     <Dialog open={open} onClose={onClose} title="Workspace settings" description="Viewport preferences are remembered on this device.">
       <div className="settings">
+        <h3>Display</h3>
+        <Choice<TextSize>
+          label="Text size"
+          value={textSize}
+          options={[['small', 'Small'], ['default', 'Default'], ['large', 'Large'], ['xlarge', 'Extra large']]}
+          onChange={setTextSize}
+        />
         <h3>Viewport</h3>
         <Choice<Shading>
           label="Shading"

@@ -16,7 +16,7 @@ const WorkspacePage = lazy(() =>
 )
 
 function FullScreenStatus() {
-  return <div className="grid min-h-screen place-items-center bg-surface text-[13px] text-ink-400">Loading…</div>
+  return <div className="grid min-h-screen place-items-center bg-surface text-[0.9062rem] text-ink-400">Loading…</div>
 }
 
 export function RequireAuth({ children }: { children: ReactNode }) {

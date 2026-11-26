@@ -16,11 +16,11 @@ function AuthLayout({ title, subtitle, children, footer }: { title: string; subt
           <span>forma<span className="brand-light">3D</span></span>
         </div>
         <div className="rounded-2xl border border-line bg-white p-7 shadow-[0_10px_30px_#2026330d]">
-          <h1 className="font-display text-[19px] font-extrabold tracking-tight">{title}</h1>
-          <p className="mb-6 mt-1 text-[13px] text-ink-400">{subtitle}</p>
+          <h1 className="font-display text-[1.1875rem] font-extrabold tracking-tight">{title}</h1>
+          <p className="mb-6 mt-1 text-[0.9062rem] text-ink-400">{subtitle}</p>
           {children}
         </div>
-        <p className="mt-5 text-center text-[12px] text-ink-400">{footer}</p>
+        <p className="mt-5 text-center text-[0.8438rem] text-ink-400">{footer}</p>
       </div>
     </div>
   )
@@ -74,7 +74,7 @@ export function LoginPage() {
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Input label="Email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <Input label="Password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        {error && <p className="text-[12px] text-danger-600" role="alert">{error}</p>}
+        {error && <p className="text-[0.8438rem] text-danger-600" role="alert">{error}</p>}
         <Button type="submit" disabled={pending} className="mt-1 h-10">{pending ? 'Signing in…' : 'Sign in'}</Button>
       </form>
     </AuthLayout>
@@ -115,7 +115,7 @@ export function RegisterPage() {
       footer={<>Already have an account? <Link to="/login" className="font-semibold text-brand-500">Sign in</Link></>}
     >
       {loaded && !registrationOpen ? (
-        <p className="rounded-lg bg-surface-2 p-3 text-[13px] text-ink-600" role="status">
+        <p className="rounded-lg bg-surface-2 p-3 text-[0.9062rem] text-ink-600" role="status">
           Sign-ups are closed on this server. Ask your administrator for an account.
         </p>
       ) : (
@@ -123,7 +123,7 @@ export function RegisterPage() {
         <Input label="Name" autoComplete="name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} required />
         <Input label="Email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <Input label="Password" type="password" autoComplete="new-password" value={password} minLength={8} onChange={(e) => setPassword(e.target.value)} required />
-        {error && <p className="text-[12px] text-danger-600" role="alert">{error}</p>}
+        {error && <p className="text-[0.8438rem] text-danger-600" role="alert">{error}</p>}
         <Button type="submit" disabled={pending} className="mt-1 h-10">{pending ? 'Creating account…' : 'Create account'}</Button>
       </form>
       )}

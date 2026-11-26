@@ -20,7 +20,7 @@ const SOURCE: Record<ConfigField['source'], { label: string; cls: string; title:
 }
 
 const CONTROL =
-  'h-9 w-full rounded-lg border border-line bg-white px-3 text-[13px] text-ink-900 outline-none ' +
+  'h-9 w-full rounded-lg border border-line bg-white px-3 text-[0.9062rem] text-ink-900 outline-none ' +
   'focus:border-brand-400 focus:ring-3 focus:ring-brand-100 disabled:opacity-60'
 
 function show(v: SettingValue | null | undefined) {
@@ -122,12 +122,12 @@ function FieldRow({ field, draft, setDraft }: { field: ConfigField; draft: Draft
     <div className={`grid gap-3 border-b border-[#eff0f4] py-4 last:border-0 md:grid-cols-[minmax(0,1fr)_minmax(0,320px)] ${edited ? 'bg-[#fbfaff]' : ''}`}>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <label htmlFor={`cfg-${field.key}`} className="text-[13px] font-semibold text-ink-900">{field.label}</label>
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${source.cls}`} title={source.title}>{source.label}</span>
-          {edited && <span className="rounded bg-[#fff4e0] px-1.5 py-0.5 text-[10px] font-semibold text-[#9a6200]">{resetPending ? 'Will reset' : 'Unsaved'}</span>}
+          <label htmlFor={`cfg-${field.key}`} className="text-[0.9062rem] font-semibold text-ink-900">{field.label}</label>
+          <span className={`rounded px-1.5 py-0.5 text-[0.75rem] font-semibold ${source.cls}`} title={source.title}>{source.label}</span>
+          {edited && <span className="rounded bg-[#fff4e0] px-1.5 py-0.5 text-[0.75rem] font-semibold text-[#9a6200]">{resetPending ? 'Will reset' : 'Unsaved'}</span>}
         </div>
-        {field.help && <p className="mt-1 text-[12px] leading-relaxed text-ink-400">{field.help}</p>}
-        <p className="mt-1 text-[11px] text-ink-300">
+        {field.help && <p className="mt-1 text-[0.8438rem] leading-relaxed text-ink-400">{field.help}</p>}
+        <p className="mt-1 text-[0.8125rem] text-ink-300">
           {field.env && <code className="mr-2">{field.env}</code>}
           {field.type === 'secret'
             ? `Default: ${field.default_is_set ? 'set in .env' : 'not set'}`
@@ -140,7 +140,7 @@ function FieldRow({ field, draft, setDraft }: { field: ConfigField; draft: Draft
         {field.type === 'secret' && field.is_set && field.source === 'app' && (
           <button
             type="button"
-            className="cursor-pointer border-0 bg-transparent text-[11px] font-semibold text-danger-600 hover:underline"
+            className="cursor-pointer border-0 bg-transparent text-[0.8125rem] font-semibold text-danger-600 hover:underline"
             onClick={() => set('')}
             title="Remove the saved key"
           >
@@ -171,8 +171,8 @@ function LlmTestPanel({ draft, group }: { draft: Draft; group: ConfigGroup }) {
     <div className="mb-5 rounded-xl border border-line bg-white p-4">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold text-ink-900">Test connection</div>
-          <p className="text-[12px] text-ink-400">
+          <div className="text-[0.9062rem] font-semibold text-ink-900">Test connection</div>
+          <p className="text-[0.8438rem] text-ink-400">
             Runs on an assistant worker with the values below, including unsaved changes: model list, a chat reply,
             structured output and a test photo.
           </p>
@@ -182,17 +182,17 @@ function LlmTestPanel({ draft, group }: { draft: Draft; group: ConfigGroup }) {
           {test.isPending ? 'Testing…' : 'Test connection'}
         </Button>
       </div>
-      {test.isError && <p className="mt-3 text-[12px] text-danger-600" role="alert">{errorMessage(test.error)}</p>}
+      {test.isError && <p className="mt-3 text-[0.8438rem] text-danger-600" role="alert">{errorMessage(test.error)}</p>}
       {result && (
         <div className="mt-3" aria-live="polite">
-          <div className={`mb-2 text-[12px] font-semibold ${result.ok ? 'text-[#2f7a3b]' : 'text-danger-600'}`}>
+          <div className={`mb-2 text-[0.8438rem] font-semibold ${result.ok ? 'text-[#2f7a3b]' : 'text-danger-600'}`}>
             {result.ok ? 'Connection works' : 'Connection has problems'}
             {result.model && <span className="font-normal text-ink-400"> · {result.provider} · {result.model}{result.base_url ? ` @ ${result.base_url}` : ''}</span>}
           </div>
-          {result.error && <p className="text-[12px] text-danger-600">{result.error}</p>}
+          {result.error && <p className="text-[0.8438rem] text-danger-600">{result.error}</p>}
           <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
             {result.checks.map((c) => (
-              <li key={c.name} className="flex items-start gap-2 text-[12px]">
+              <li key={c.name} className="flex items-start gap-2 text-[0.8438rem]">
                 {c.ok ? <CheckCircle2 size={14} className="mt-px shrink-0 text-[#2f9a43]" /> : <XCircle size={14} className="mt-px shrink-0 text-danger-500" />}
                 <span className="font-semibold text-ink-700">{c.label}</span>
                 <span className="min-w-0 flex-1 text-ink-500">{c.detail}</span>
@@ -221,8 +221,8 @@ function UsersPanel() {
     <section className="mt-6 rounded-xl border border-line bg-white">
       <div className="flex flex-wrap items-center gap-3 border-b border-[#eff0f4] px-4 py-3">
         <div className="min-w-0 flex-1">
-          <h3 className="m-0 text-[13px] font-semibold text-ink-900">Users</h3>
-          <p className="m-0 text-[12px] text-ink-400">
+          <h3 className="m-0 text-[0.9062rem] font-semibold text-ink-900">Users</h3>
+          <p className="m-0 text-[0.8438rem] text-ink-400">
             Deactivated users are signed out immediately. Administrators can open this page.
           </p>
         </div>
@@ -231,13 +231,13 @@ function UsersPanel() {
           <input className={`${CONTROL} pl-8`} placeholder="Search name or email" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search users" />
         </div>
       </div>
-      {update.isError && <p className="m-0 px-4 pt-3 text-[12px] text-danger-600" role="alert">{errorMessage(update.error)}</p>}
+      {update.isError && <p className="m-0 px-4 pt-3 text-[0.8438rem] text-danger-600" role="alert">{errorMessage(update.error)}</p>}
       {users.isError ? (
-        <p className="p-4 text-[12px] text-danger-600">{errorMessage(users.error)}</p>
+        <p className="p-4 text-[0.8438rem] text-danger-600">{errorMessage(users.error)}</p>
       ) : (
-        <table className="w-full border-collapse text-[12px]">
+        <table className="w-full border-collapse text-[0.8438rem]">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide text-ink-300">
+            <tr className="text-left text-[0.8125rem] uppercase tracking-wide text-ink-300">
               <th className="px-4 py-2 font-semibold">User</th>
               <th className="px-2 py-2 font-semibold">Projects</th>
               <th className="px-2 py-2 font-semibold">Joined</th>
@@ -273,7 +273,7 @@ function UsersPanel() {
         </table>
       )}
       {users.data && users.data.total > users.data.items.length && (
-        <p className="m-0 border-t border-[#eff0f4] px-4 py-2 text-[11px] text-ink-400">
+        <p className="m-0 border-t border-[#eff0f4] px-4 py-2 text-[0.8125rem] text-ink-400">
           Showing {users.data.items.length} of {users.data.total}. Search to narrow the list.
         </p>
       )}
@@ -326,21 +326,21 @@ export function ConfigurationPage() {
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-8 pb-28">
-        <Link to="/" className="mb-3 inline-flex items-center gap-1.5 text-[12px] font-semibold text-ink-400 no-underline hover:text-brand-700">
+        <Link to="/" className="mb-3 inline-flex items-center gap-1.5 text-[0.8438rem] font-semibold text-ink-400 no-underline hover:text-brand-700">
           <ArrowLeft size={14} /> Projects
         </Link>
         <div className="mb-6 flex items-center gap-3">
           <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-500"><ShieldCheck size={20} /></div>
           <div>
-            <h1 className="m-0 text-[20px] font-bold text-ink-900">Configuration</h1>
-            <p className="m-0 text-[12px] text-ink-400">
+            <h1 className="m-0 text-[1.25rem] font-bold text-ink-900">Configuration</h1>
+            <p className="m-0 text-[0.8438rem] text-ink-400">
               Changes apply to all users within a few seconds, without a restart. Anything not set here comes from the server's <code>.env</code>.
             </p>
           </div>
         </div>
 
-        {config.isLoading && <p className="text-[13px] text-ink-400">Loading settings…</p>}
-        {config.isError && <p className="text-[13px] text-danger-600" role="alert">{errorMessage(config.error)}</p>}
+        {config.isLoading && <p className="text-[0.9062rem] text-ink-400">Loading settings…</p>}
+        {config.isError && <p className="text-[0.9062rem] text-danger-600" role="alert">{errorMessage(config.error)}</p>}
 
         {group && (
           <>
@@ -351,19 +351,19 @@ export function ConfigurationPage() {
                   role="tab"
                   aria-selected={!activity && g.id === group.id}
                   onClick={() => setTab(g.id)}
-                  className={`-mb-px cursor-pointer border-0 border-b-2 bg-transparent px-3 py-2 text-[13px] font-semibold ${
+                  className={`-mb-px cursor-pointer border-0 border-b-2 bg-transparent px-3 py-2 text-[0.9062rem] font-semibold ${
                     !activity && g.id === group.id ? 'border-brand-500 text-brand-700' : 'border-transparent text-ink-400 hover:text-ink-900'
                   }`}
                 >
                   {g.label}
-                  {perTab[g.id] > 0 && <span className="ml-1.5 rounded-full bg-[#fff4e0] px-1.5 text-[10px] text-[#9a6200]">{perTab[g.id]}</span>}
+                  {perTab[g.id] > 0 && <span className="ml-1.5 rounded-full bg-[#fff4e0] px-1.5 text-[0.75rem] text-[#9a6200]">{perTab[g.id]}</span>}
                 </button>
               ))}
               <button
                 role="tab"
                 aria-selected={activity}
                 onClick={() => setTab('activity')}
-                className={`-mb-px cursor-pointer border-0 border-b-2 bg-transparent px-3 py-2 text-[13px] font-semibold ${
+                className={`-mb-px cursor-pointer border-0 border-b-2 bg-transparent px-3 py-2 text-[0.9062rem] font-semibold ${
                   activity ? 'border-brand-500 text-brand-700' : 'border-transparent text-ink-400 hover:text-ink-900'
                 }`}
               >
@@ -375,7 +375,7 @@ export function ConfigurationPage() {
               <AgentActivityPanel />
             ) : (
               <>
-                {group.help && <p className="mb-4 text-[12px] text-ink-500">{group.help}</p>}
+                {group.help && <p className="mb-4 text-[0.8438rem] text-ink-500">{group.help}</p>}
                 {group.id === 'ai' && <LlmTestPanel draft={draft} group={group} />}
 
                 <section role="tabpanel" aria-label={group.label} className="rounded-xl border border-line bg-white px-4">
@@ -392,7 +392,7 @@ export function ConfigurationPage() {
       {(changes > 0 || saved || save.isError) && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 shadow-[0_-4px_16px_#0000000d] backdrop-blur">
           <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3">
-            <div className="min-w-0 flex-1 text-[12px]">
+            <div className="min-w-0 flex-1 text-[0.8438rem]">
               {save.isError ? (
                 <span className="text-danger-600" role="alert">{errorMessage(save.error)}</span>
               ) : changes > 0 ? (

@@ -40,7 +40,7 @@ export function ProjectFormDialog({ open, mode, project, pending, error, onClose
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Input label="Project name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} placeholder="Modern writing desk" required />
         <Textarea label="Description (optional)" value={description} maxLength={2000} onChange={(e) => setDescription(e.target.value)} placeholder="Oak top, black steel legs…" />
-        {error && <p className="text-[12px] text-danger-600" role="alert">{error}</p>}
+        {error && <p className="text-[0.8438rem] text-danger-600" role="alert">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={pending || !name.trim()}>

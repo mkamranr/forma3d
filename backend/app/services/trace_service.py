@@ -47,10 +47,17 @@ async def agent_graph(redis: Redis | None) -> dict[str, Any] | None:
         return None
 
 
+def _kind(run: AgentRun) -> str:
+    """Rows recorded before step tracing have kind `agent`; the ones with a real model were LLM calls."""
+    if run.kind == "agent" and run.model_name and run.model_name != "deterministic":
+        return "llm"
+    return run.kind
+
+
 def _call(run: AgentRun, include_debug: bool) -> dict[str, Any]:
     out: dict[str, Any] = {
         "id": str(run.id),
-        "kind": run.kind,
+        "kind": _kind(run),
         "agent": run.agent_name,
         "model": run.model_name if run.model_name != "deterministic" else None,
         "status": run.status,
@@ -203,7 +210,7 @@ class TraceService:
         if job_ids:
             for run in (await self.session.execute(select(AgentRun).where(AgentRun.job_id.in_(job_ids)))).scalars():
                 s = stats[run.job_id]  # type: ignore[index]
-                if run.kind == "llm":
+                if _kind(run) == "llm":
                     s["llm_calls"] += 1
                     s["tokens"] += int((run.input_metadata or {}).get("prompt_tokens") or 0) + int(
                         (run.output_metadata or {}).get("completion_tokens") or 0

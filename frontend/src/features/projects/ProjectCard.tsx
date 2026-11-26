@@ -57,16 +57,16 @@ export function ProjectCard({ project, onRename, onDuplicate, onToggleArchive, o
             <Cuboid size={42} strokeWidth={1.4} className="text-[#7f8aa0] transition-transform group-hover:scale-105" />
           )}
           {archived && (
-            <span className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold tracking-wide text-ink-600">ARCHIVED</span>
+            <span className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-0.5 text-[0.75rem] font-bold tracking-wide text-ink-600">ARCHIVED</span>
           )}
         </div>
         <div className="px-4 pb-4 pt-3">
-          <h3 className="truncate pr-8 font-display text-[14px] font-bold text-ink-900">{project.name}</h3>
-          <p className="mt-0.5 line-clamp-1 min-h-[18px] text-[12px] text-ink-400">{project.description || 'No description'}</p>
-          <div className="mt-3 flex items-center gap-3 text-[11px] text-ink-400">
-            <span>Edited {relativeTime(project.updated_at)}</span>
-            <span className="text-ink-300">·</span>
-            <span className="inline-flex items-center gap-1"><Layers3 size={12} /> {project.version_count} {project.version_count === 1 ? 'version' : 'versions'}</span>
+          <h3 className="truncate pr-8 font-display text-[0.9688rem] font-bold text-ink-900">{project.name}</h3>
+          <p className="mt-0.5 line-clamp-1 min-h-[18px] text-[0.8438rem] text-ink-400">{project.description || 'No description'}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.8125rem] text-ink-400">
+            <span className="whitespace-nowrap">Edited {relativeTime(project.updated_at)}</span>
+            <span className="text-ink-300" aria-hidden>·</span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap"><Layers3 size={12} /> {project.version_count} {project.version_count === 1 ? 'version' : 'versions'}</span>
           </div>
         </div>
       </Link>
@@ -104,7 +104,7 @@ function MenuItem({ icon, label, danger, onClick }: { icon: React.ReactNode; lab
     <button
       role="menuitem"
       onClick={onClick}
-      className={`flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-1.5 text-left text-[12px] ${
+      className={`flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-1.5 text-left text-[0.8438rem] ${
         danger ? 'text-danger-600 hover:bg-[#fbeceb]' : 'text-ink-600 hover:bg-surface-2 hover:text-brand-700'
       }`}
     >

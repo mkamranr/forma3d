@@ -59,8 +59,8 @@ export function DashboardPage() {
       <main className="mx-auto max-w-6xl px-6 py-8">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="font-display text-[22px] font-extrabold tracking-tight">Your projects</h1>
-            <p className="mt-1 text-[13px] text-ink-400">Create a model by describing it, then refine it through conversation.</p>
+            <h1 className="font-display text-[1.375rem] font-extrabold tracking-tight">Your projects</h1>
+            <p className="mt-1 text-[0.9062rem] text-ink-400">Create a model by describing it, then refine it through conversation.</p>
           </div>
           <Button onClick={() => setCreating(true)}><Plus size={15} /> New Project</Button>
         </div>
@@ -73,7 +73,7 @@ export function DashboardPage() {
                 role="tab"
                 aria-selected={status === s}
                 onClick={() => setStatus(s)}
-                className={`cursor-pointer rounded-md border-0 px-3 py-1.5 text-[12px] font-semibold capitalize ${
+                className={`cursor-pointer rounded-md border-0 px-3 py-1.5 text-[0.8438rem] font-semibold capitalize ${
                   status === s ? 'bg-brand-50 text-brand-700' : 'bg-transparent text-ink-500 hover:text-ink-900'
                 }`}
               >
@@ -89,21 +89,21 @@ export function DashboardPage() {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search projects"
               aria-label="Search projects"
-              className="h-9 w-full rounded-lg border border-line bg-white pl-9 pr-3 text-[13px] outline-none focus:border-brand-400 focus:ring-3 focus:ring-brand-100"
+              className="h-9 w-full rounded-lg border border-line bg-white pl-9 pr-3 text-[0.9062rem] outline-none focus:border-brand-400 focus:ring-3 focus:ring-brand-100"
             />
           </div>
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as ProjectSort)}
             aria-label="Sort projects"
-            className="h-9 cursor-pointer rounded-lg border border-line bg-white px-3 text-[13px] text-ink-600 outline-none focus:border-brand-400"
+            className="h-9 cursor-pointer rounded-lg border border-line bg-white px-3 text-[0.9062rem] text-ink-600 outline-none focus:border-brand-400"
           >
             {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
 
         {projects.isError ? (
-          <div className="rounded-xl border border-line bg-white p-8 text-center text-[13px] text-danger-600" role="alert">
+          <div className="rounded-xl border border-line bg-white p-8 text-center text-[0.9062rem] text-danger-600" role="alert">
             Could not load projects: {projects.error.message}
           </div>
         ) : projects.isLoading ? (
@@ -113,12 +113,12 @@ export function DashboardPage() {
         ) : isEmptyAccount ? (
           <div className="flex flex-col items-center rounded-2xl border border-dashed border-[#d9dce4] bg-white px-6 py-16 text-center">
             <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-500"><Cuboid size={28} /></div>
-            <h2 className="font-display text-[17px] font-bold">Start creating your first 3D model.</h2>
-            <p className="mt-1.5 max-w-sm text-[13px] text-ink-400">Describe an object, like a desk, a chair or a cabinet, and the AI will build it in Blender.</p>
+            <h2 className="font-display text-[1.125rem] font-bold">Start creating your first 3D model.</h2>
+            <p className="mt-1.5 max-w-sm text-[0.9062rem] text-ink-400">Describe an object, like a desk, a chair or a cabinet, and the AI will build it in Blender.</p>
             <Button className="mt-5" onClick={() => setCreating(true)}><Plus size={15} /> New Project</Button>
           </div>
         ) : items.length === 0 ? (
-          <div className="rounded-xl border border-line bg-white p-10 text-center text-[13px] text-ink-400">
+          <div className="rounded-xl border border-line bg-white p-10 text-center text-[0.9062rem] text-ink-400">
             {q ? `No projects match “${q}”.` : 'No archived projects.'}
           </div>
         ) : (

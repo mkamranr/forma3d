@@ -34,7 +34,7 @@
 
 .panel-heading strong {
   display:block;
-  font:700 12px Manrope;
+  font:700 0.8438rem Manrope;
 }
 
 .panel-heading small {
@@ -42,7 +42,7 @@
   align-items:center;
   gap:5px;
   color:#969dab;
-  font-size:10px;
+  font-size:0.75rem;
   margin-top:3px;
 }
 
@@ -69,7 +69,7 @@
 .viewport-label,
 .section-heading,
 .property-title {
-  font-size:9px;
+  font-size:0.6875rem;
   letter-spacing:.8px;
   font-weight:700;
   color:#9ba1ae;
@@ -81,7 +81,7 @@
   gap:7px;
   margin-top:7px;
   color:#6b62c7;
-  font-size:10px;
+  font-size:0.75rem;
 }
 
 .context-row span:nth-child(2) {
@@ -92,7 +92,7 @@
 .context-count {
   margin-left:auto;
   color:#a1a6b2!important;
-  font-size:9px!important;
+  font-size:0.6875rem!important;
 }
 
 .messages {
@@ -105,7 +105,7 @@
   text-align:center;
   margin:2px 0 15px;
   color:#a8adba;
-  font-size:9px;
+  font-size:0.6875rem;
 }
 
 .date-divider:before, .date-divider:after {
@@ -142,7 +142,7 @@
 }
 
 .message-meta {
-  font-size:9px;
+  font-size:0.6875rem;
   color:#626b7c;
   font-weight:700;
   margin:1px 0 5px;
@@ -155,7 +155,7 @@
 }
 
 .bubble {
-  font-size:11px;
+  font-size:0.8125rem;
   line-height:1.55;
   color:#50596a;
   background:#f5f6f9;
@@ -186,7 +186,7 @@
   align-items:center;
   gap:6px;
   color:#9299a7;
-  font-size:9px;
+  font-size:0.6875rem;
   padding:2px 0 8px 30px;
 }
 
@@ -216,7 +216,7 @@
 
 .suggestions>span {
   width:100%;
-  font-size:8px;
+  font-size:0.625rem;
 }
 
 .suggestions button {
@@ -225,7 +225,7 @@
   color:#7167c3;
   border-radius:20px;
   padding:5px 8px;
-  font-size:9px;
+  font-size:0.6875rem;
   cursor:pointer;
 }
 
@@ -255,7 +255,7 @@
   border:0;
   outline:0;
   padding:10px 11px 4px;
-  font:11px 'DM Sans';
+  font:0.8125rem 'DM Sans';
   color:#384052;
   background:transparent;
 }
@@ -281,7 +281,7 @@
 .composer-hint {
   margin-left:auto;
   color:#b1b5bf;
-  font-size:8px;
+  font-size:0.625rem;
   display:flex;
   align-items:center;
   gap:4px;
@@ -311,7 +311,7 @@
   justify-content:center;
   gap:5px;
   color:#a2a7b2;
-  font-size:8px;
+  font-size:0.625rem;
   margin-top:8px;
 }
 
@@ -332,7 +332,7 @@
 .message-attachments { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:5px; }
 .attachment-thumb { width:88px; height:88px; border-radius:9px; overflow:hidden; border:1px solid #e2e1ef; background:#f4f4f8; display:grid; place-items:center; color:#9da3b0; }
 .attachment-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
-.vision-note { margin-top:5px; font-size:10px; color:#6b7180; max-width:100%; }
+.vision-note { margin-top:5px; font-size:0.75rem; color:#6b7180; max-width:100%; }
 .vision-note summary { cursor:pointer; display:inline-flex; align-items:center; gap:4px; color:#7167c3; list-style:none; }
 .vision-note summary::-webkit-details-marker { display:none; }
 .vision-note pre { white-space:pre-wrap; font-family:inherit; margin:5px 0 0; padding:8px 9px; background:#f6f6fa; border:1px solid #ebebf3; border-radius:8px; line-height:1.45; }
