@@ -19,6 +19,8 @@
   <img alt="Blender" src="https://img.shields.io/badge/Blender-4.5%20LTS-E87D0D?logo=blender&logoColor=white">
   <img alt="Docker" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white">
   <img alt="Self-hosted LLM" src="https://img.shields.io/badge/LLM-vLLM%20%2F%20OpenAI--compatible-412991">
+  <a href="https://github.com/mkamranr/forma3d/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mkamranr/forma3d/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
 </p>
 
 <p align="center">
@@ -28,7 +30,8 @@
   <a href="#deployment-with-docker">Deployment</a> ·
   <a href="#configuration">Configuration</a> ·
   <a href="#operations">Operations</a> ·
-  <a href="#development">Development</a>
+  <a href="#development">Development</a> ·
+  <a href="#contributing">Contributing</a>
 </p>
 
 ---
@@ -564,3 +567,17 @@ docs/            Architecture, DSL, API, deployment and operations guides
   edits).
 - The Linux container images and the Postgres checkpointer have not yet been run on the target Docker host.
   All suites pass locally, including the real-Blender suites (Blender 4.5.17 on Windows).
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, the checks
+CI runs and the project's rules (for example, every new modeling operation needs a schema, validator rules and a
+Blender handler). This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
+
+Found a security problem? Please report it privately, as described in [SECURITY.md](SECURITY.md), not in a
+public issue.
+
+## License
+
+forma3D is released under the [MIT License](LICENSE). Blender, which runs inside the `blender-worker` image, is
+licensed separately under the GNU GPL.

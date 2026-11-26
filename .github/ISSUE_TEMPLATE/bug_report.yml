@@ -1,0 +1,66 @@
+name: Bug report
+description: Something does not work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **Security problems must not be reported here.** See [SECURITY.md](https://github.com/mkamranr/forma3d/blob/main/SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        1. Created a project and asked "add two drawers"
+        2. ...
+        Expected: ...
+        Actual: ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Assistant / agents (chat, planning, QA)
+        - Image-to-3D (photos)
+        - 3D viewport / editing panels
+        - Versions / history
+        - Export / render
+        - Configuration / accounts
+        - Deployment / Docker
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: trace
+    attributes:
+      label: Agent trace or logs
+      description: |
+        For assistant problems, open **How this was made** under the reply and describe the failing step, or paste the relevant output of
+        `docker compose ... logs backend agent-worker blender-worker`. Remove secrets and private data.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: e.g. a9517bd
+  - type: input
+    id: llm
+    attributes:
+      label: LLM server and model
+      placeholder: e.g. vLLM 0.9, Qwen3-32B (thinking off)
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: How do you run it?
+      options:
+        - Docker Compose (Linux host)
+        - Offline / air-gapped bundle
+        - Local development (dev_local.py)
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: e.g. Chrome 131 on Windows 11
