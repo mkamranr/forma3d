@@ -1,6 +1,7 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { ConfigurationPage } from '../features/admin/ConfigurationPage'
 import { LoginPage, RegisterPage } from '../features/auth/AuthPages'
 import { DashboardPage } from '../features/projects/DashboardPage'
 import { refreshSession } from '../services/api'
@@ -26,6 +27,16 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+/** Signed-in administrators only; everyone else goes back to their projects. */
+export function RequireAdmin({ children }: { children: ReactNode }) {
+  const user = useAuthStore((s) => s.user)
+  return (
+    <RequireAuth>
+      {user?.is_admin ? children : <Navigate to="/" replace />}
+    </RequireAuth>
+  )
+}
+
 export function GuestOnly({ children }: { children: ReactNode }) {
   const status = useAuthStore((s) => s.status)
   if (status === 'loading') return <FullScreenStatus />
@@ -39,6 +50,7 @@ export function AppRoutes() {
       <Route path="/login" element={<GuestOnly><LoginPage /></GuestOnly>} />
       <Route path="/register" element={<GuestOnly><RegisterPage /></GuestOnly>} />
       <Route path="/" element={<RequireAuth><DashboardPage /></RequireAuth>} />
+      <Route path="/configuration" element={<RequireAdmin><ConfigurationPage /></RequireAdmin>} />
       <Route
         path="/projects/:projectId"
         element={<RequireAuth><Suspense fallback={<FullScreenStatus />}><WorkspacePage /></Suspense></RequireAuth>}

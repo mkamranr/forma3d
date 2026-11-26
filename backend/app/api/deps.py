@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.security import decode_access_token
 from app.core.config import Settings
-from app.core.errors import AuthError, RateLimitedError
+from app.core.errors import AuthError, ForbiddenError, RateLimitedError
 from app.models import User
 from app.repositories.users import UserRepository
 from app.services.rate_limit import RateLimiter
@@ -18,8 +18,15 @@ from app.services.rate_limit import RateLimiter
 _bearer = HTTPBearer(auto_error=False)
 
 
-def get_settings_dep(request: Request) -> Settings:
-    return request.app.state.settings
+async def get_settings_dep(request: Request) -> Settings:
+    """Settings with the overrides saved in the app's Configuration page applied (cached, re-checked
+    against the Redis version counter every few seconds)."""
+    runtime = getattr(request.app.state, "runtime", None)
+    if runtime is None:
+        return request.app.state.settings
+    db = getattr(request.app.state, "db", None)
+    await runtime.refresh(db.sessionmaker if db is not None else None, getattr(request.app.state, "redis", None))
+    return runtime.settings
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -42,6 +49,12 @@ async def get_current_user(
     user = await UserRepository(session).get(user_id)
     if user is None or not user.is_active:
         raise AuthError("Invalid access token", code="invalid_token")
+    return user
+
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    if not user.is_admin:
+        raise ForbiddenError("Only administrators can do this", code="admin_only")
     return user
 
 

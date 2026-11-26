@@ -73,6 +73,10 @@ class BackendClient:
     def context(self, job_id: uuid.UUID) -> AgentContext:
         return AgentContext.model_validate(self._call("GET", f"/internal/v1/agent-jobs/{job_id}/context"))
 
+    def runtime_config(self) -> dict[str, Any]:
+        """Overrides saved in the app's Configuration page: {"version": n, "values": {...}}."""
+        return self._call("GET", "/internal/v1/config")
+
     def reference_bytes(self, job_id: uuid.UUID, reference_id: uuid.UUID) -> bytes:
         """A photo attached to the job's message (raw bytes; not JSON)."""
         delay = 1.0

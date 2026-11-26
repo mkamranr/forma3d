@@ -8,6 +8,7 @@ its last LangGraph checkpoint (`/start` with reclaim=true lets the new worker ta
 
 from __future__ import annotations
 
+import json
 import signal
 import threading
 import time
@@ -16,6 +17,7 @@ from typing import Any
 import httpx
 import redis
 from forma3d_shared.constants.limits import ModelingLimits
+from forma3d_shared.runtime_config import CONFIG_VERSION_KEY, LLM_TEST_QUEUE, LLM_TEST_RESULT
 from forma3d_shared.schemas.agent import AGENT_JOB_GROUP, AGENT_JOB_STREAM, AgentCompleteRequest, AgentJobSpec
 
 from .backend_client import BackendClient, BackendUnavailable
@@ -24,6 +26,7 @@ from .config import AgentConfig
 from .graph.workflow import Deps, Workflow, log
 from .providers.base import LLMProvider
 from .runner import AgentRunner
+from .runtime import apply_overrides, encode, limits_with, run_llm_test
 
 RECLAIM_IDLE_MS = 180_000
 
@@ -40,6 +43,10 @@ class Worker:
         sleep=time.sleep,  # noqa: ANN001
     ) -> None:
         self.cfg = cfg
+        self.base_cfg = cfg  # environment; the app's overrides are applied on top (refresh_config)
+        self.config_version: int | None = None
+        #: Providers injected by tests are kept; otherwise they are rebuilt when the config changes.
+        self.own_providers = providers is None
         self.redis = r or redis.Redis.from_url(cfg.redis_url, decode_responses=True)
         self.backend = backend or BackendClient(cfg.backend_url, cfg.internal_token)
         deps = Deps(
@@ -86,6 +93,64 @@ class Worker:
         if status != "ok":
             log("worker.llm_unreachable", base_url=self.cfg.llm_base_url)
 
+    # ------------------------------------------------------------------ in-app configuration
+    def refresh_config(self) -> None:
+        """Apply settings changed in the Configuration page (checked before every job; cheap when unchanged)."""
+        try:
+            version = int(self.redis.get(CONFIG_VERSION_KEY) or 0)
+        except Exception:
+            return
+        if version == self.config_version:
+            return
+        try:
+            values = self.backend.runtime_config().get("values") or {}
+        except Exception as exc:
+            log("worker.config_fetch_failed", error=type(exc).__name__)
+            return
+        cfg = apply_overrides(self.base_cfg, values)
+        d = self.runner.workflow.d
+        if self.own_providers:
+            try:
+                d.providers = cfg.build_providers()
+            except Exception as exc:  # e.g. unknown provider: keep the previous one
+                log("worker.config_invalid", error=str(exc)[:200])
+                return
+        d.max_retries, d.max_revisions, d.llm_max_tokens = cfg.max_retries, cfg.max_revisions, cfg.llm_max_tokens
+        d.limits = limits_with(values)
+        self.cfg = cfg
+        self._llm_checked = 0.0  # re-probe the (possibly new) endpoint soon
+        if self.config_version is not None:
+            log(
+                "worker.config_applied",
+                version=version,
+                provider=cfg.llm_provider,
+                models={a: cfg.model_for(a) for a in ("conversation", "planning", "revision", "vision")},
+            )
+        self.config_version = version
+
+    def serve_llm_tests(self, poll_seconds: float = 1.0) -> None:
+        """Answer "Test connection" from the Configuration page (only workers can reach the model).
+
+        Polls with LPOP rather than a blocking BLPOP: one cheap command per second, and it does not tie up a
+        connection or depend on client socket timeouts."""
+        while not self.stop.is_set():
+            try:
+                raw = self.redis.lpop(LLM_TEST_QUEUE)
+                if not raw:
+                    self.stop.wait(poll_seconds)
+                    continue
+                req = json.loads(raw)
+                cfg = apply_overrides(self.base_cfg, req.get("values") or {})
+                try:
+                    result = run_llm_test(cfg)
+                except Exception as exc:
+                    result = {"ok": False, "checks": [], "error": f"{type(exc).__name__}: {exc}"[:300]}
+                result["worker_id"] = self.cfg.worker_id
+                self.redis.set(LLM_TEST_RESULT.format(id=req["id"]), encode(result), ex=120)
+            except Exception as exc:
+                log("worker.llm_test_failed", error=type(exc).__name__)
+                self.stop.wait(2)
+
     def ensure_group(self) -> None:
         try:
             self.redis.xgroup_create(AGENT_JOB_STREAM, AGENT_JOB_GROUP, id="0", mkstream=True)
@@ -120,6 +185,7 @@ class Worker:
             self.redis.xack(AGENT_JOB_STREAM, AGENT_JOB_GROUP, msg_id)
             return
         self.current_msg = msg_id
+        self.refresh_config()
         try:
             self.runner.run(spec, reclaim=reclaim)
         except BackendUnavailable:
@@ -175,7 +241,9 @@ class Worker:
 
     def run(self) -> None:
         self.ensure_group()
+        self.refresh_config()
         threading.Thread(target=self.heartbeat_loop, daemon=True).start()
+        threading.Thread(target=self.serve_llm_tests, daemon=True).start()
         log(
             "worker.started",
             worker_id=self.cfg.worker_id,

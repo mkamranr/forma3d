@@ -99,6 +99,21 @@ project serial, while different projects (and all renders/exports) run in parall
 `BLENDER_TMP_SIZE` for your largest scene × 3. Agent workers are mostly waiting on the LLM; scale them
 with the LLM server's concurrency. Watch `forma3d_queue_waiting` to decide.
 
+## Configuration and administrators
+
+Administrators change runtime settings under **avatar menu → Configuration**. Overrides are stored in the
+`app_settings` table; each save bumps the Redis counter `config:version`, so every backend replica reloads within
+about 3 s and every worker reloads before its next job. Reset a field to fall back to `.env`. To undo everything,
+clear the table:
+
+```bash
+docker compose --env-file .env -f deployment/docker-compose.yml exec postgres   psql -U forma3d -d forma3d -c "DELETE FROM app_settings" && docker compose --env-file .env -f deployment/docker-compose.yml exec redis redis-cli INCR config:version
+```
+
+**Locked out?** Put your email in `ADMIN_EMAILS` and restart the backend: listed accounts are made
+administrators at startup. If no administrator exists at all, the oldest active account is promoted.
+`REGISTRATION_OPEN=false` closes sign-ups (the app setting wins once saved).
+
 ## Retention
 
 | Data | Kept |

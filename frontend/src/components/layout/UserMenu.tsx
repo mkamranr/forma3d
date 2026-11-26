@@ -1,4 +1,4 @@
-import { LogOut } from 'lucide-react'
+import { LogOut, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
@@ -47,6 +47,15 @@ export function UserMenu() {
             <div className="truncate text-[11px] text-[#8b92a0]">{user?.email}</div>
           </div>
           <div className="my-1 h-px bg-[#eff0f4]" />
+          {user?.is_admin && (
+            <button
+              role="menuitem"
+              onClick={() => navigate('/configuration')}
+              className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-[12px] text-[#626b7c] hover:bg-[#f0f1f6] hover:text-[#4f46bd]"
+            >
+              <SlidersHorizontal size={14} /> Configuration
+            </button>
+          )}
           <button
             role="menuitem"
             onClick={signOut}

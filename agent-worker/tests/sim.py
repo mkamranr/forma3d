@@ -225,6 +225,9 @@ class SimBackend:
             reference_description=job["description"],
         )
 
+    def runtime_config(self) -> dict[str, Any]:
+        return {"version": 0, "values": getattr(self, "config", {})}
+
     def reference_bytes(self, job_id, reference_id) -> bytes:  # noqa: ANN001
         self.reference_reads = getattr(self, "reference_reads", 0) + 1
         return self.jobs[job_id]["refs"][reference_id]

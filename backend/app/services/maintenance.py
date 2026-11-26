@@ -75,12 +75,19 @@ def job_deadline(job: Job, settings: Settings) -> datetime | None:
 
 class Maintenance:
     def __init__(
-        self, sessionmaker: async_sessionmaker[AsyncSession], redis: Redis, settings: Settings, storage: ProjectStorage
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        redis: Redis,
+        settings: Settings,
+        storage: ProjectStorage,
+        *,
+        runtime: Any = None,
     ) -> None:
         self.sessionmaker = sessionmaker
         self.redis = redis
         self.settings = settings
         self.storage = storage
+        self.runtime = runtime  # RuntimeConfig: timeouts and retention changed in the app apply here too
 
     # ------------------------------------------------------------------ jobs
     async def sweep_jobs(self, now: datetime | None = None) -> dict[str, int]:
@@ -207,6 +214,9 @@ class Maintenance:
 
     # ------------------------------------------------------------------ loop
     async def run_once(self, now: datetime | None = None) -> dict[str, Any]:
+        if self.runtime is not None:
+            await self.runtime.refresh(self.sessionmaker, self.redis)
+            self.settings = self.runtime.settings
         stats: dict[str, Any] = await self.sweep_jobs(now)
         stats["locks_released"] = await self.release_stale_locks()
         stats["projects_purged"] = await self.purge_deleted_projects(now)

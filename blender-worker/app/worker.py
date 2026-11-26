@@ -13,6 +13,7 @@ Reliability:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import signal
 import threading
@@ -20,6 +21,7 @@ import time
 from typing import Any
 
 import redis
+from forma3d_shared.runtime_config import CONFIG_VERSION_KEY, limit_overrides
 from forma3d_shared.schemas.events import JobEvent, cancel_flag_key, event_stream_key
 from forma3d_shared.schemas.job import BLENDER_JOB_GROUP, BLENDER_JOB_STREAM, BlenderJobResult, BlenderJobSpec
 
@@ -45,6 +47,8 @@ def log(event: str, **fields: Any) -> None:
 class Worker:
     def __init__(self, cfg: WorkerConfig, r: redis.Redis | None = None, backend: BackendClient | None = None) -> None:
         self.cfg = cfg
+        self.base_limits = cfg.limits
+        self.config_version: int | None = None
         self.redis = r or redis.Redis.from_url(cfg.redis_url, decode_responses=True)
         self.backend = backend or BackendClient(cfg.backend_url, cfg.internal_token)
         self.stop = threading.Event()
@@ -84,7 +88,23 @@ class Worker:
             log("worker.emit_failed", job_id=str(job_id), error=type(exc).__name__)
 
     # ------------------------------------------------------------------ jobs
+    def refresh_limits(self) -> None:
+        """Modeling limits changed in the app's Configuration page (the backend validated batches against
+        them already; the worker re-checks meshes with the same numbers)."""
+        try:
+            version = int(self.redis.get(CONFIG_VERSION_KEY) or 0)
+            if version == self.config_version:
+                return
+            values = self.backend.runtime_config().get("values") or {}
+            limits = self.base_limits.model_copy(update=limit_overrides(values))
+        except Exception as exc:
+            log("worker.config_fetch_failed", error=type(exc).__name__)
+            return
+        self.cfg = dataclasses.replace(self.cfg, limits=limits)
+        self.config_version = version
+
     def handle(self, msg_id: str, fields: dict[str, str], *, reclaim: bool = False) -> None:
+        self.refresh_limits()
         self.current_msg = msg_id
         try:
             self._handle(msg_id, fields, reclaim=reclaim)

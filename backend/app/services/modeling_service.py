@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.errors import AppError, ConflictError, NotFoundError, ServiceUnavailableError
 from app.core.logging import get_logger
+from app.core.runtime_config import current_limits
 from app.models import Job, OperationBatch, Project, SceneVersion
 from app.repositories.modeling import ModelingRepository
 from app.repositories.projects import ProjectRepository
@@ -45,7 +46,8 @@ async def ensure_no_agent_turn(session: AsyncSession, project_id: uuid.UUID) -> 
 
 
 def get_limits() -> ModelingLimits:
-    return ModelingLimits.from_env()
+    """Environment limits with the values saved in the app's Configuration page."""
+    return current_limits()
 
 
 class ModelingService:

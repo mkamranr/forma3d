@@ -86,6 +86,12 @@ def main() -> None:
     async def init_db() -> None:
         async with db.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            # create_all never alters existing tables: add columns introduced since the data dir was made.
+            from sqlalchemy import text
+
+            cols = {r[1] for r in (await conn.execute(text("PRAGMA table_info(users)"))).all()}
+            if "is_admin" not in cols:
+                await conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0"))
 
     asyncio.run(init_db())
     db = Database(db_url)  # fresh engine for uvicorn's event loop

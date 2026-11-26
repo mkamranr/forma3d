@@ -47,7 +47,7 @@ describe('routing and auth guards', () => {
     await userEvent.type(pw, 'short')
     await userEvent.click(screen.getByRole('button', { name: 'Create account' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('at least 8 characters')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/auth/register'))).toBe(false)
   })
 
   it('keeps authenticated users away from the login page', async () => {

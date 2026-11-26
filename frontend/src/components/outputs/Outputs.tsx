@@ -1,5 +1,6 @@
 import { AlertTriangle, Camera, Download, FileBox, Image as ImageIcon, Loader2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useClientConfig } from '../../features/admin/hooks'
 import { errorMessage, useCreateOutput, useOutput, useRenders, type OutputKind } from '../../features/modeling/hooks'
 import { useWorkspaceScene } from '../../features/modeling/WorkspaceContext'
 import { downloadOutput } from '../../services/outputs'
@@ -137,8 +138,15 @@ function Choice<T extends string>({ value, options, onChange, name }: { value: T
 /** Export the current version in any allowed format (spec §13.8). */
 export function ExportDialog({ open, onClose, projectName }: { open: boolean; onClose: () => void; projectName: string }) {
   const { projectId, version, inventory } = useWorkspaceScene()
-  const [format, setFormat] = useState<ExportFormat>('glb')
-  const [unit, setUnit] = useState<Unit>('m')
+  const defaults = useClientConfig()
+  const [format, setFormat] = useState<ExportFormat>(defaults.default_export_format)
+  const [unit, setUnit] = useState<Unit>(defaults.default_export_unit)
+  // Admin defaults (Configuration → Rendering & export) apply each time the dialog opens.
+  useEffect(() => {
+    if (!open) return
+    setFormat(defaults.default_export_format)
+    setUnit(defaults.default_export_unit)
+  }, [open, defaults.default_export_format, defaults.default_export_unit])
   const [includeHidden, setIncludeHidden] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const create = useCreateOutput(projectId)
@@ -200,8 +208,15 @@ export function ExportDialog({ open, onClose, projectName }: { open: boolean; on
 export function RenderDialog({ open, onClose, projectName }: { open: boolean; onClose: () => void; projectName: string }) {
   const { projectId, version, inventory } = useWorkspaceScene()
   const cameras = inventory.objects.filter((o) => o.type === 'CAMERA')
-  const [quality, setQuality] = useState<RenderQuality>('standard')
-  const [size, setSize] = useState(0)
+  const defaults = useClientConfig()
+  const defaultSize = Math.max(0, SIZES.findIndex((s) => `${s.w}x${s.h}` === defaults.default_render_size))
+  const [quality, setQuality] = useState<RenderQuality>(defaults.default_render_quality)
+  const [size, setSize] = useState(defaultSize)
+  useEffect(() => {
+    if (!open) return
+    setQuality(defaults.default_render_quality)
+    setSize(defaultSize)
+  }, [open, defaults.default_render_quality, defaultSize])
   const [camera, setCamera] = useState<string>('')
   const [transparent, setTransparent] = useState(false)
   const create = useCreateOutput(projectId)

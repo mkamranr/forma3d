@@ -64,7 +64,9 @@ The first build downloads Blender 4.5 LTS (checksum-verified) and takes a few mi
 enforced with health checks: postgres + redis → `migrate` (`alembic upgrade head`, one-shot) →
 backend → workers → frontend.
 
-Open `http://<docker-host>:3000`, register an account and create a project.
+Open `http://<docker-host>:3000`, register an account and create a project. The first account is the
+administrator: it can open **Configuration** (avatar menu) to change the AI model, defaults, limits and accounts at
+runtime. Set `ADMIN_EMAILS` for more administrators and `REGISTRATION_OPEN=false` to close public sign-ups.
 
 Check health:
 

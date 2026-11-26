@@ -1,3 +1,4 @@
+import { useClientConfig } from '../admin/hooks'
 import { Cuboid } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
@@ -36,6 +37,7 @@ function useReturnTo() {
 }
 
 export function LoginPage() {
+  const { registration_open: registrationOpen } = useClientConfig()
   const navigate = useNavigate()
   const returnTo = useReturnTo()
   const [email, setEmail] = useState('')
@@ -61,7 +63,13 @@ export function LoginPage() {
     <AuthLayout
       title="Welcome back"
       subtitle="Sign in to continue to your 3D studio."
-      footer={<>New to forma3D? <Link to="/register" className="font-semibold text-brand-500">Create an account</Link></>}
+      footer={
+        registrationOpen ? (
+          <>New to forma3D? <Link to="/register" className="font-semibold text-brand-500">Create an account</Link></>
+        ) : (
+          <>New accounts are created by your administrator.</>
+        )
+      }
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Input label="Email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -74,6 +82,7 @@ export function LoginPage() {
 }
 
 export function RegisterPage() {
+  const { registration_open: registrationOpen, loaded } = useClientConfig()
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -105,6 +114,11 @@ export function RegisterPage() {
       subtitle="Start building 3D models through conversation."
       footer={<>Already have an account? <Link to="/login" className="font-semibold text-brand-500">Sign in</Link></>}
     >
+      {loaded && !registrationOpen ? (
+        <p className="rounded-lg bg-surface-2 p-3 text-[13px] text-ink-600" role="status">
+          Sign-ups are closed on this server. Ask your administrator for an account.
+        </p>
+      ) : (
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Input label="Name" autoComplete="name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} required />
         <Input label="Email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -112,6 +126,7 @@ export function RegisterPage() {
         {error && <p className="text-[12px] text-danger-600" role="alert">{error}</p>}
         <Button type="submit" disabled={pending} className="mt-1 h-10">{pending ? 'Creating account…' : 'Create account'}</Button>
       </form>
+      )}
     </AuthLayout>
   )
 }

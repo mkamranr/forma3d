@@ -234,3 +234,11 @@ async def agent_reference_description(
 ) -> Response:
     await _conv(request, session, settings).save_reference_description(job_id, body.description)
     return Response(status_code=204)
+
+
+@router.get("/config")
+async def runtime_config(request: Request, _settings: Settings = Depends(get_settings_dep)) -> dict:
+    """Overrides saved in the Configuration page (including secrets: internal network + token only).
+    Workers fetch this when the Redis counter `config:version` changes."""
+    runtime = request.app.state.runtime
+    return {"version": runtime.version, "values": runtime.overrides}

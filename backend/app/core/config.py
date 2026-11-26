@@ -60,8 +60,20 @@ class Settings(BaseSettings):
     #: optional bearer token for GET /metrics (the endpoint is never proxied publicly)
     metrics_token: str = ""
 
-    rate_limit_auth_per_minute: int = 20
-    rate_limit_jobs_per_minute: int = 10
+    rate_limit_auth_per_minute: int = Field(default=20, ge=1, le=10_000)
+    rate_limit_jobs_per_minute: int = Field(default=10, ge=1, le=10_000)
+
+    # --- accounts (changeable in the app's Configuration page)
+    #: anyone may create an account; the very first account is always allowed (and becomes admin)
+    registration_open: bool = True
+    #: comma-separated emails that are admins (promoted at startup and on registration)
+    admin_emails: str = ""
+
+    # --- defaults offered by the render / export dialogs
+    default_render_quality: str = "standard"
+    default_render_size: str = "1280x720"
+    default_export_format: str = "glb"
+    default_export_unit: str = "m"
 
     cors_origins: list[str] = Field(default_factory=list)
 
@@ -85,6 +97,10 @@ class Settings(BaseSettings):
             if weak:
                 raise ValueError(f"production needs strong secrets (24+ chars, not the defaults): {', '.join(weak)}")
         return self
+
+    @property
+    def admin_email_list(self) -> set[str]:
+        return {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
 
     @property
     def is_production(self) -> bool:

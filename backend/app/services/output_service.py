@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.errors import AppError, ConflictError, NotFoundError, ServiceUnavailableError
 from app.core.logging import get_logger
+from app.core.runtime_config import current_limits
 from app.core.time import utcnow
 from app.models import Asset, Job, Project, SceneVersion
 from app.repositories.modeling import ModelingRepository
@@ -32,7 +33,6 @@ from app.repositories.projects import ProjectRepository
 from app.services.events import EventPublisher
 from app.services.storage import ProjectStorage
 from app.services.version_service import sha256_file
-from forma3d_shared.constants.limits import ModelingLimits
 from forma3d_shared.schemas.job import (
     BLENDER_JOB_STREAM,
     BlenderJobResult,
@@ -89,7 +89,7 @@ class OutputService:
         self.storage = storage
         self.repo = ModelingRepository(session)
         self.events = EventPublisher(redis)
-        self.limits = ModelingLimits.from_env()
+        self.limits = current_limits()
 
     # ------------------------------------------------------------------ lookups
     async def project(self, user_id: uuid.UUID, project_id: uuid.UUID) -> Project:

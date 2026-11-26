@@ -1,6 +1,7 @@
 """ORM models. Importing this package registers every table on Base.metadata."""
 
 from app.models.agent_run import AgentRun
+from app.models.app_setting import AppSetting
 from app.models.asset import Asset
 from app.models.conversation import Conversation, Message
 from app.models.job import Job
@@ -11,6 +12,7 @@ from app.models.user import RefreshToken, User
 
 __all__ = [
     "AgentRun",
+    "AppSetting",
     "Asset",
     "Conversation",
     "Message",

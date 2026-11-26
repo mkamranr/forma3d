@@ -15,8 +15,10 @@ from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging, get_logger
+from app.core.runtime_config import RuntimeConfig
 from app.database.session import Database
 from app.middleware.correlation import CorrelationIdMiddleware
+from app.services.auth_service import ensure_admins
 from app.services.maintenance import Maintenance, maintenance_loop
 from app.services.rate_limit import MemoryRateLimiter, RateLimiter, RedisRateLimiter
 from app.services.storage import ProjectStorage
@@ -44,6 +46,12 @@ def create_app(
         )
         log.info("app.startup", env=settings.app_env)
         try:
+            await app.state.runtime.refresh(app.state.db.sessionmaker, app.state.redis, force=True)
+            async with app.state.db.sessionmaker() as session:
+                await ensure_admins(session, settings)
+        except Exception as exc:  # e.g. migrations not applied yet in a test database
+            log.warning("config.startup_failed", error=type(exc).__name__)
+        try:
             async with app.state.db.sessionmaker() as session:
                 await reconcile_storage(
                     session, ProjectStorage(settings.data_root), orphan_minutes=settings.staging_orphan_minutes
@@ -54,7 +62,11 @@ def create_app(
         sweeper = None
         if settings.maintenance_enabled and app.state.redis is not None:
             maintenance = Maintenance(
-                app.state.db.sessionmaker, app.state.redis, settings, ProjectStorage(settings.data_root)
+                app.state.db.sessionmaker,
+                app.state.redis,
+                settings,
+                ProjectStorage(settings.data_root),
+                runtime=app.state.runtime,
             )
             sweeper = asyncio.create_task(maintenance_loop(maintenance, stop))
         try:
@@ -80,6 +92,7 @@ def create_app(
         openapi_url=None if settings.is_production else "/api/openapi.json",
     )
     app.state.settings = settings
+    app.state.runtime = RuntimeConfig(settings)
 
     if settings.cors_origins:
         app.add_middleware(

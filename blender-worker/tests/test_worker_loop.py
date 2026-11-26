@@ -167,3 +167,23 @@ def test_blender_never_sees_worker_secrets(tmp_path):
     assert env["PATH"] == "/usr/bin" and env["F3D_CYCLES_DEVICE"] == "OPTIX"
     assert "INTERNAL_SERVICE_TOKEN" not in env and "REDIS_URL" not in env
     assert env["BLENDER_USER_CONFIG"].startswith(str(tmp_path))
+
+
+def test_limits_changed_in_the_app_apply_before_the_next_job(cfg, r):
+    class ConfigBackend(FakeBackend):
+        values: dict = {}
+
+        def runtime_config(self):
+            return {"version": 1, "values": self.values}
+
+    backend = ConfigBackend()
+    w = Worker(cfg, r, backend)
+    default = w.cfg.limits.max_scene_vertices
+    w.refresh_limits()
+    assert w.cfg.limits.max_scene_vertices == default
+    backend.values = {"modeling_max_scene_vertices": 5_000_000, "llm_model": "ignored-here"}
+    w.refresh_limits()  # version unchanged: not re-read
+    assert w.cfg.limits.max_scene_vertices == default
+    r.incr("config:version")
+    w.refresh_limits()
+    assert w.cfg.limits.max_scene_vertices == 5_000_000

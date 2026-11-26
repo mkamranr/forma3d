@@ -35,6 +35,12 @@ class BackendClient:
                 delay = min(delay * 2, 15)
         raise BackendUnavailable(str(last))
 
+    def runtime_config(self) -> dict:
+        """Overrides saved in the app's Configuration page (only the modeling limits matter here)."""
+        res = self.http.get("/internal/v1/config", headers=self.headers, timeout=10.0)
+        res.raise_for_status()
+        return res.json()
+
     def start(self, job_id: uuid.UUID, worker_id: str, *, reclaim: bool = False) -> JobStartResponse:
         return JobStartResponse.model_validate(
             self._post(f"/internal/v1/jobs/{job_id}/start", {"worker_id": worker_id, "reclaim": reclaim})

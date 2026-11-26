@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +18,7 @@ from app.auth.security import (
     verify_password,
 )
 from app.core.config import Settings
-from app.core.errors import AuthError, ConflictError
+from app.core.errors import AuthError, ConflictError, ForbiddenError
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.models import User
@@ -48,12 +49,20 @@ class AuthService:
         self.tokens = RefreshTokenRepository(session)
 
     async def register(self, *, email: str, password: str, display_name: str) -> IssuedTokens:
+        first = (await self.session.execute(select(User.id).limit(1))).first() is None
+        if not first and not self.settings.registration_open:
+            raise ForbiddenError(
+                "Sign-ups are closed on this installation. Ask an administrator for an account.",
+                code="registration_closed",
+            )
         if await self.users.get_by_email(email):
             raise ConflictError("An account with this email already exists", code="email_taken")
         try:
             user = await self.users.create(
                 email=email, password_hash=hash_password(password), display_name=display_name
             )
+            # The first account administers the installation; ADMIN_EMAILS can name more.
+            user.is_admin = first or user.email.lower() in self.settings.admin_email_list
             issued = await self._issue(user, family_id=uuid.uuid4())
             await self.session.commit()
         except IntegrityError as exc:
@@ -114,3 +123,23 @@ class AuthService:
             expires_at=utcnow() + timedelta(seconds=self.settings.refresh_token_ttl_seconds),
         )
         return IssuedTokens(user=user, access_token=create_access_token(user.id, self.settings), refresh_token=plain)
+
+
+async def ensure_admins(session: AsyncSession, settings: Settings) -> None:
+    """Startup: promote ADMIN_EMAILS; if accounts exist but none is an admin, the oldest active one becomes
+    admin (so an installation can never lock itself out of its Configuration page)."""
+    emails = settings.admin_email_list
+    if emails:
+        rows = await session.execute(select(User).where(func.lower(User.email).in_(emails), User.is_admin.is_(False)))
+        for user in rows.scalars():
+            user.is_admin = True
+            log.info("auth.admin_promoted", user_id=str(user.id), reason="ADMIN_EMAILS")
+    has_admin = (await session.execute(select(User.id).where(User.is_admin.is_(True)).limit(1))).first()
+    if has_admin is None:
+        oldest = (
+            await session.execute(select(User).where(User.is_active.is_(True)).order_by(User.created_at).limit(1))
+        ).scalar_one_or_none()
+        if oldest is not None:
+            oldest.is_admin = True
+            log.info("auth.admin_promoted", user_id=str(oldest.id), reason="no_admin")
+    await session.commit()

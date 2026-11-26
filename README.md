@@ -125,6 +125,9 @@
 
 ### Accounts and projects
 - Email and password accounts (argon2). Short-lived JWTs with rotating, reuse-detected refresh cookies.
+- **Configuration page for administrators** (avatar menu → Configuration): AI model and endpoint (with a
+  one-click *Test connection*), rendering and export defaults, modeling limits and retention, and accounts
+  (sign-up on/off, activate/deactivate users, grant admin). Changes apply live, without a restart.
 - Projects can be created, renamed, duplicated, archived and deleted, with search and sorting.
   Each user's data is isolated.
 
@@ -267,7 +270,8 @@ behind health checks:
 
 ### 4. Open the app
 
-Browse to **`http://<docker-host>:3000`**, create an account, start a project and ask for a model:
+Browse to **`http://<docker-host>:3000`**, create an account (the first one is the administrator and can open
+**Configuration** from the avatar menu), start a project and ask for a model:
 
 > *Create a modern wooden desk with four black metal legs*
 
@@ -313,7 +317,23 @@ deployment/scripts/offline-install.sh             # verifies checksums + image d
 
 ## Configuration
 
-All settings live in `.env`. See [.env.example](.env.example) for the documented list. The most important ones:
+Settings come from `.env` (see [.env.example](.env.example) for the documented list). **Administrators** can
+override most of them in the app under **avatar menu → Configuration**. Values set there are stored in the
+database, take effect within seconds on the backend and before the next job on every worker, and can be reset
+back to the `.env` value per field. Secrets such as the LLM API key are write-only in the UI.
+
+| Tab | What you can change |
+|---|---|
+| AI model | Provider, endpoint, API key, main and per-agent models (incl. vision), thinking, structured output, temperature, max tokens, timeout, retries/revisions, plus **Test connection** (model list, chat, JSON schema, test photo) |
+| Rendering & export | Default render quality and size, default export format and unit, Eevee on/off, Blender job/render timeouts |
+| Limits & retention | Validator limits (ops per batch, objects, vertices), retention days, rate limits |
+| Accounts | Sign-ups open/closed, and the user list: activate/deactivate, grant/remove admin |
+
+The first account created is an administrator; `ADMIN_EMAILS` (comma-separated) names more. At least one active
+administrator always remains. Settings that need a restart (database, Redis, secrets for JWT/internal tokens,
+worker counts and resources) stay in `.env` only.
+
+The most important `.env` variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -329,6 +349,8 @@ All settings live in `.env`. See [.env.example](.env.example) for the documented
 | `MODELING_MAX_*` | 200 ops, 500 objects, 1M vertices | Validator limits |
 | `DELETED_PROJECT_RETENTION_DAYS` / `OUTPUT_RETENTION_DAYS` | `30` / `30` | Retention (`0` keeps data forever) |
 | `METRICS_TOKEN` | empty | Bearer token for `/metrics` |
+| `ADMIN_EMAILS` | empty | Extra administrators (the first account always is one) |
+| `REGISTRATION_OPEN` | `true` | `false` = only the first account may sign up |
 
 ## Operations
 

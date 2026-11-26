@@ -32,7 +32,19 @@
 | POST/GET | `/api/v1/projects/{id}/textures` · `/textures/{texture_id}` | multipart PNG/JPEG upload (≤10 MB, header-checked); the DSL references it by `image_id` only |
 | POST | `/api/v1/projects/{id}/conversation/messages` | `{content, selected_object_ids?, selected_object_id?, attachment_ids?}` → 202 `{message, job_id}`; follow `job_id` via SSE; 409 `project_busy`. `content` may be empty when photos are attached; 422 `attachment_not_found` / `too_many_attachments` (max 4) |
 | POST/GET | `/api/v1/projects/{id}/references` · `/references/{ref_id}` | image-to-3D: multipart PNG/JPEG upload (≤10 MB, ≤4096 px, header-checked) of a photo to attach to a message; the user message's metadata then carries `attachments` and, once read, `reference_description` |
+| GET | `/api/v1/config` | public, no login: `{registration_open, default_render_quality, default_render_size, default_export_format, default_export_unit}` |
 
+### Administration (admins only: 401 without login, 403 `admin_only` otherwise)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/admin/config` | `{version, groups:[{id, label, help, fields:[{key, label, help, type, options, min, max, source: app\|env\|default, env, value, default}]}]}`; secrets return `value: null` + `is_set` |
+| PUT | `/api/v1/admin/config` | `{values: {key: value}}`; `null` resets to `.env`/default, `""` clears a secret; 422 `invalid_setting` |
+| POST | `/api/v1/admin/config/test-llm` | `{values}` (unsaved AI settings to try) → `{ok, provider, model, models, checks:[{name, label, ok, detail, ms}]}`; runs on an agent worker; 503 `no_agent_worker` / `llm_test_timeout` |
+| GET | `/api/v1/admin/users` | `?q=&limit=&offset=` → `{items:[{id, email, display_name, is_active, is_admin, created_at, projects}], total}` |
+| PATCH | `/api/v1/admin/users/{id}` | `{is_active?, is_admin?}`; deactivation signs the user out; 409 `self_change` / `last_admin` |
+
+`POST /auth/register` returns 403 `registration_closed` when sign-ups are closed (the first account is always allowed).
 
 All scene edits compile to DSL and return 202 + `job_id`, exactly like `modeling/execute`.
 
@@ -43,6 +55,7 @@ All scene edits compile to DSL and return 202 + `job_id`, exactly like `modeling
 | POST | `/internal/v1/jobs/{id}/start` · `complete` | worker callbacks, `X-Internal-Token`, internal network only |
 | GET/POST | `/internal/v1/agent-jobs/{id}/references/{ref_id}` · `reference-description` | Vision agent: bytes of a photo attached to this job only; store its description on the message |
 | GET/POST | `/internal/v1/agent-jobs/{id}/context` · `plan` · `runs` · `restore` · `complete` | agent worker: context, validated plan (per attempt, `defer_commit`), agent run records, undo/restore, reply |
+| GET | `/internal/v1/config` | `{version, values}`: Configuration overrides (incl. secrets) for workers; fetched when Redis `config:version` changes |
 | GET/POST | `/internal/v1/jobs/{id}/staged` · `commit` · `discard` | agent worker: inspect a staged Blender result, then commit it as a version or discard it |
 
 DSL reference: [`modeling-dsl.md`](modeling-dsl.md). Try it after `make up` (token from login):
